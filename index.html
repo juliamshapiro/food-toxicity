@@ -1062,7 +1062,7 @@ function startScanner() {
 
 function stopScanner() {
     if (scanner && scanning) {
-        scanner.stop().catch(() => {});
+        scanner.stop().catch(() => {}).finally(() => { scanner = null; });
         scanning = false;
         const btn = document.getElementById('scanBtn');
         btn.textContent = 'Start Scanner';
