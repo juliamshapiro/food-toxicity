@@ -554,8 +554,9 @@ function scoreProduct(product) {
     const labels      = (product.labels_tags || []).join(' ').toLowerCase();
     const ingredients = (product.ingredients_text || '').toLowerCase();
     const categories  = (product.categories_tags || []).join(' ').toLowerCase();
-    const isOrganic   = labels.includes('organic');
-    const isNonGMO    = labels.includes('non-gmo') || labels.includes('non gmo') || labels.includes('project verified');
+    const productName = (product.product_name || '').toLowerCase();
+    const isOrganic   = labels.includes('organic') || categories.includes('organic') || productName.includes('organic');
+    const isNonGMO    = labels.includes('non-gmo') || labels.includes('non gmo') || labels.includes('project verified') || labels.includes('non gmo project');
 
     const result = {
         pesticide:  { riskScore: 0, maxScore: 35, details: [] },
