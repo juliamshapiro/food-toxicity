@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Food Scanner</title>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0f;
+            color: #f0f0f5;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ── */
+        .header {
+            padding: 18px 20px 14px;
+            background: rgba(10,10,15,0.95);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header-logo { font-size: 22px; }
+        .header-text h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+        .header-text p { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 1px; }
+
+        /* ── Scanner ── */
+        .scanner-section { padding: 20px 20px 0; }
+
+        .scanner-container {
+            position: relative;
+            border-radius: 22px;
+            overflow: hidden;
+            background: #111118;
+            max-width: 420px;
+            margin: 0 auto;
+            aspect-ratio: 4/3;
+        }
+
+        #reader {
+            width: 100% !important;
+            height: 100% !important;
+            border-radius: 22px;
+            overflow: hidden;
+        }
+
+        /* Suppress html5-qrcode default UI */
+        #reader img, #reader select, #reader button:not(.scan-corner) { display: none !important; }
+        #reader video { width: 100% !important; height: 100% !important; object-fit: cover; }
+
+        .scan-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        .scan-frame { width: 220px; height: 140px; position: relative; }
+
+        .corner {
+            position: absolute;
+            width: 28px;
+            height: 28px;
+        }
+        .corner-tl { top:0; left:0; border-top: 3px solid #6ee7b7; border-left: 3px solid #6ee7b7; border-radius: 5px 0 0 0; }
+        .corner-tr { top:0; right:0; border-top: 3px solid #6ee7b7; border-right: 3px solid #6ee7b7; border-radius: 0 5px 0 0; }
+        .corner-bl { bottom:0; left:0; border-bottom: 3px solid #6ee7b7; border-left: 3px solid #6ee7b7; border-radius: 0 0 0 5px; }
+        .corner-br { bottom:0; right:0; border-bottom: 3px solid #6ee7b7; border-right: 3px solid #6ee7b7; border-radius: 0 0 5px 0; }
+
+        .scan-line {
+            position: absolute;
+            left: 8px; right: 8px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #6ee7b7, transparent);
+            animation: scanLine 2s ease-in-out infinite;
+            top: 10%;
+        }
+        @keyframes scanLine {
+            0%   { top: 10%; opacity: 0; }
+            10%  { opacity: 1; }
+            90%  { opacity: 1; }
+            100% { top: 90%; opacity: 0; }
+        }
+
+        .scanner-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            color: rgba(255,255,255,0.3);
+        }
+        .scanner-placeholder-icon { font-size: 48px; opacity: 0.4; }
+        .scanner-placeholder-text { font-size: 14px; }
+
+        /* ── Controls ── */
+        .controls {
+            padding: 16px 20px 0;
+            display: flex;
+            gap: 10px;
+            max-width: 460px;
+            margin: 0 auto;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 15px 12px;
+            border-radius: 15px;
+            border: none;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, opacity 0.15s;
+            letter-spacing: -0.2px;
+        }
+        .btn:active { transform: scale(0.96); }
+
+        .btn-primary { background: #6ee7b7; color: #0a0a0f; }
+        .btn-primary.danger { background: rgba(248,113,113,0.15); color: #f87171; }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.07);
+            color: #f0f0f5;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .tip {
+            text-align: center;
+            font-size: 12px;
+            color: rgba(255,255,255,0.3);
+            padding: 12px 20px 20px;
+        }
+
+        /* ── Manual Entry ── */
+        .manual-entry {
+            padding: 0 20px 8px;
+            max-width: 460px;
+            margin: 0 auto;
+            display: none;
+        }
+        .manual-entry.visible { display: block; }
+
+        .manual-row { display: flex; gap: 10px; margin-top: 12px; }
+
+        .manual-entry input {
+            flex: 1;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.05);
+            color: #f0f0f5;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .manual-entry input:focus { border-color: #6ee7b7; }
+        .manual-entry input::placeholder { color: rgba(255,255,255,0.3); }
+
+        .manual-go {
+            padding: 0 20px;
+            border-radius: 14px;
+            border: none;
+            background: #6ee7b7;
+            color: #0a0a0f;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        /* ── Overlay + Panel ── */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 150;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .overlay.visible { opacity: 1; pointer-events: all; }
+
+        .results-panel {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #13131c;
+            border-radius: 26px 26px 0 0;
+            padding: 0 20px env(safe-area-inset-bottom, 24px);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 24px);
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+            max-height: 90vh;
+            overflow-y: auto;
+            z-index: 200;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+        .results-panel.visible { transform: translateY(0); }
+
+        .panel-handle {
+            width: 36px;
+            height: 4px;
+            background: rgba(255,255,255,0.18);
+            border-radius: 2px;
+            margin: 14px auto 6px;
+        }
+
+        .panel-close {
+            position: absolute;
+            top: 16px; right: 16px;
+            width: 30px; height: 30px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.08);
+            border: none;
+            color: rgba(255,255,255,0.6);
+            font-size: 15px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ── Score section ── */
+        .score-section {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 0 0;
+            margin-bottom: 18px;
+        }
+
+        .score-circle {
+            width: 76px;
+            height: 76px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .score-letter { font-size: 34px; font-weight: 800; line-height: 1; }
+        .score-sublabel { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; opacity: 0.75; }
+
+        .grade-A { background: rgba(110,231,183,0.18); color: #6ee7b7; }
+        .grade-B { background: rgba(134,239,172,0.18); color: #86efac; }
+        .grade-C { background: rgba(253,224,71,0.18);  color: #fde047; }
+        .grade-D { background: rgba(251,146,60,0.18);  color: #fb923c; }
+        .grade-F { background: rgba(248,113,113,0.18); color: #f87171; }
+
+        .product-info { flex: 1; min-width: 0; }
+        .product-name { font-size: 17px; font-weight: 700; line-height: 1.3; margin-bottom: 3px; }
+        .product-brand { font-size: 12px; color: rgba(255,255,255,0.45); margin-bottom: 5px; }
+        .verdict-pill {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* ── Risk bar ── */
+        .risk-bar-wrap { margin-bottom: 20px; }
+        .risk-bar-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: rgba(255,255,255,0.3);
+            margin-bottom: 5px;
+        }
+        .risk-bar {
+            height: 7px;
+            background: rgba(255,255,255,0.07);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .risk-bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; }
+
+        /* ── Category grid ── */
+        .cat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 22px;
+        }
+
+        .cat-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            padding: 14px 14px 12px;
+        }
+        .cat-icon { font-size: 18px; margin-bottom: 6px; }
+        .cat-name {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: rgba(255,255,255,0.4);
+            margin-bottom: 4px;
+        }
+        .cat-risk { font-size: 13px; font-weight: 700; }
+        .cat-sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 2px; }
+
+        .risk-low    { color: #6ee7b7; }
+        .risk-medium { color: #fde047; }
+        .risk-high   { color: #fb923c; }
+        .risk-severe { color: #f87171; }
+        .risk-ok     { color: #6ee7b7; }
+
+        /* ── Detail sections ── */
+        .section-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: rgba(255,255,255,0.35);
+            margin: 18px 0 8px;
+        }
+
+        .detail-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 13px;
+            padding: 12px 14px;
+            margin-bottom: 7px;
+        }
+
+        .detail-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .detail-title {
+            font-size: 13px;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 20px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .badge-ok      { background: rgba(110,231,183,0.15); color: #6ee7b7; }
+        .badge-low     { background: rgba(110,231,183,0.12); color: #6ee7b7; }
+        .badge-medium  { background: rgba(253,224,71,0.15);  color: #fde047; }
+        .badge-high    { background: rgba(251,146,60,0.18);  color: #fb923c; }
+        .badge-severe  { background: rgba(248,113,113,0.18); color: #f87171; }
+        .badge-neutral { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.5); }
+
+        .detail-desc { font-size: 12px; color: rgba(255,255,255,0.45); line-height: 1.55; margin-top: 5px; }
+
+        /* ── Scan again btn ── */
+        .scan-again {
+            width: 100%;
+            margin-top: 22px;
+            padding: 16px;
+            border-radius: 16px;
+            border: none;
+            background: #6ee7b7;
+            color: #0a0a0f;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.15s;
+        }
+        .scan-again:active { transform: scale(0.98); }
+
+        /* ── Loading / Error ── */
+        .loading-state, .error-state {
+            text-align: center;
+            padding: 48px 20px;
+        }
+        .spinner {
+            width: 38px; height: 38px;
+            border: 3px solid rgba(110,231,183,0.2);
+            border-top-color: #6ee7b7;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-state p { color: rgba(255,255,255,0.5); font-size: 14px; }
+
+        .error-icon { font-size: 44px; margin-bottom: 12px; }
+        .error-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+        .error-desc { font-size: 13px; color: rgba(255,255,255,0.45); line-height: 1.5; }
+
+        /* ── Disclaimer ── */
+        .disclaimer {
+            margin-top: 18px;
+            padding: 12px 14px;
+            background: rgba(253,224,71,0.06);
+            border: 1px solid rgba(253,224,71,0.15);
+            border-radius: 12px;
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <div class="header-logo">🔬</div>
+    <div class="header-text">
+        <h1>Food Toxicity Scanner</h1>
+        <p>Pesticides · Glyphosate · Additives · Processing</p>
+    </div>
+</div>
+
+<!-- Scanner -->
+<div class="scanner-section">
+    <div class="scanner-container">
+        <div id="reader"></div>
+        <div class="scanner-placeholder" id="placeholder">
+            <div class="scanner-placeholder-icon">📷</div>
+            <div class="scanner-placeholder-text">Tap "Start Scanner" to begin</div>
+        </div>
+        <div class="scan-overlay" id="scanOverlay" style="display:none">
+            <div class="scan-frame">
+                <div class="corner corner-tl"></div>
+                <div class="corner corner-tr"></div>
+                <div class="corner corner-bl"></div>
+                <div class="corner corner-br"></div>
+                <div class="scan-line"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Controls -->
+<div class="controls">
+    <button class="btn btn-primary" id="scanBtn" onclick="toggleScanner()">Start Scanner</button>
+    <button class="btn btn-secondary" onclick="toggleManual()">Enter Barcode</button>
+</div>
+
+<p class="tip">Works with UPC, EAN, and most grocery barcodes</p>
+
+<!-- Manual entry -->
+<div class="manual-entry" id="manualEntry">
+    <div class="manual-row">
+        <input type="text" id="barcodeInput" placeholder="e.g. 0038000845550" inputmode="numeric" pattern="[0-9]*">
+        <button class="manual-go" onclick="lookupManual()">Go</button>
+    </div>
+</div>
+
+<!-- Overlay -->
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+
+<!-- Results panel -->
+<div class="results-panel" id="resultsPanel">
+    <div class="panel-handle"></div>
+    <button class="panel-close" onclick="closePanel()">✕</button>
+    <div id="resultsContent"></div>
+</div>
+
+<script>
+// ============================================================
+//  DATA: EWG Dirty Dozen & Clean Fifteen 2024
+// ============================================================
+const DIRTY_DOZEN = [
+    'strawberr', 'spinach', 'kale', 'collard', 'mustard green', 'peach', 'pear',
+    'nectarine', 'apple', 'bell pepper', 'hot pepper', 'cherry', 'cherries',
+    'blueberr', 'green bean', 'grape'
+];
+
+const CLEAN_FIFTEEN = [
+    'avocado', 'sweet corn', 'pineapple', 'onion', 'papaya', 'sweet peas',
+    'asparagus', 'honeydew', 'kiwi', 'cabbage', 'mushroom', 'mango',
+    'sweet potato', 'watermelon', 'carrot'
+];
+
+// Glyphosate-risk crops (pre-harvest use or GMO-linked)
+const GLYPHOSATE_CROPS = [
+    { terms: ['wheat', 'whole wheat', 'enriched wheat', 'wheat flour'], risk: 'high',   note: 'Commonly sprayed with glyphosate as a pre-harvest desiccant' },
+    { terms: ['oat', 'oats', 'rolled oats', 'oatmeal'],                 risk: 'high',   note: 'High glyphosate residue levels found in independent testing (EWG)' },
+    { terms: ['soy', 'soybean', 'soya'],                                 risk: 'high',   note: 'Most US soy is GMO and engineered to tolerate direct glyphosate spraying' },
+    { terms: ['canola', 'rapeseed'],                                     risk: 'high',   note: 'Most canola is GMO and glyphosate-tolerant' },
+    { terms: ['sugar beet', 'beet sugar'],                               risk: 'high',   note: 'Over 95% of US sugar beets are GMO; glyphosate heavily used' },
+    { terms: ['lentil', 'lentils'],                                      risk: 'high',   note: 'Often desiccated with glyphosate before harvest' },
+    { terms: ['corn', 'maize', 'cornmeal', 'corn flour', 'corn syrup'],  risk: 'medium', note: 'GMO corn is glyphosate-tolerant; risk lower if Non-GMO/organic' },
+    { terms: ['barley'],                                                 risk: 'medium', note: 'Sometimes treated with glyphosate pre-harvest' },
+    { terms: ['pea', 'peas', 'split peas', 'chickpea', 'chickpeas'],    risk: 'medium', note: 'Sometimes treated pre-harvest; test regularly for residues' },
+    { terms: ['cottonseed'],                                             risk: 'high',   note: 'Cotton is a major GMO glyphosate-tolerant crop' },
+];
+
+// ============================================================
+//  DATA: Concerning Additives (keyed by E-number without "E")
+// ============================================================
+const ADDITIVES = {
+    // --- Artificial colors (Southampton Six — all require EU warning label) ---
+    '102':  { name: 'Tartrazine (E102)',        risk: 'high',   cat: 'Artificial Color',   note: 'Linked to hyperactivity in children; requires warning label in EU; banned in Norway & Austria' },
+    '104':  { name: 'Quinoline Yellow (E104)',  risk: 'high',   cat: 'Artificial Color',   note: 'Linked to hyperactivity; banned in US, Australia, and Japan' },
+    '110':  { name: 'Sunset Yellow (E110)',     risk: 'high',   cat: 'Artificial Color',   note: 'Linked to hyperactivity; requires EU warning label; may trigger allergies' },
+    '122':  { name: 'Carmoisine (E122)',        risk: 'high',   cat: 'Artificial Color',   note: 'Linked to hyperactivity; banned in the US' },
+    '124':  { name: 'Ponceau 4R (E124)',        risk: 'high',   cat: 'Artificial Color',   note: 'Linked to hyperactivity; banned in US and Norway' },
+    '129':  { name: 'Allura Red AC (E129)',     risk: 'medium', cat: 'Artificial Color',   note: 'Widely used red dye; some studies link to hyperactivity; under review in some jurisdictions' },
+    '133':  { name: 'Brilliant Blue (E133)',    risk: 'low',    cat: 'Artificial Color',   note: 'Synthetic blue dye; low-level concern; generally considered safe in small quantities' },
+    // --- Preservatives ---
+    '210':  { name: 'Benzoic Acid (E210)',      risk: 'medium', cat: 'Preservative',       note: 'Can react with vitamin C to form benzene (a known carcinogen)' },
+    '211':  { name: 'Sodium Benzoate (E211)',   risk: 'high',   cat: 'Preservative',       note: 'Forms carcinogenic benzene when combined with vitamin C; linked to ADHD in children' },
+    '212':  { name: 'Potassium Benzoate (E212)',risk: 'medium', cat: 'Preservative',       note: 'Similar concerns to Sodium Benzoate' },
+    '220':  { name: 'Sulfur Dioxide (E220)',    risk: 'medium', cat: 'Preservative',       note: 'Common allergen; can trigger asthma attacks; destroys thiamine (vitamin B1)' },
+    '221':  { name: 'Sodium Sulphite (E221)',   risk: 'medium', cat: 'Preservative',       note: 'Common allergen; can trigger asthma' },
+    '250':  { name: 'Sodium Nitrite (E250)',    risk: 'severe', cat: 'Preservative',       note: 'Can form nitrosamines (potent carcinogens) under high heat; linked to colorectal cancer by WHO' },
+    '251':  { name: 'Sodium Nitrate (E251)',    risk: 'high',   cat: 'Preservative',       note: 'Converts to nitrite in the body; cancer risk when cooked at high temperatures' },
+    '252':  { name: 'Potassium Nitrate (E252)', risk: 'high',   cat: 'Preservative',       note: 'Same concerns as sodium nitrate' },
+    // --- Antioxidants ---
+    '320':  { name: 'BHA (E320)',               risk: 'high',   cat: 'Antioxidant',        note: 'Classified as "reasonably anticipated to be a carcinogen" by US National Toxicology Program; possible endocrine disruptor' },
+    '321':  { name: 'BHT (E321)',               risk: 'medium', cat: 'Antioxidant',        note: 'Possible endocrine disruptor; some studies show tumor-promoting activity in animals' },
+    // --- Sweeteners ---
+    '950':  { name: 'Acesulfame-K (E950)',      risk: 'medium', cat: 'Sweetener',          note: 'Some studies suggest gut microbiome disruption and metabolic effects; limited long-term data' },
+    '951':  { name: 'Aspartame (E951)',         risk: 'high',   cat: 'Sweetener',          note: 'Classified "possibly carcinogenic to humans" (Group 2B) by IARC 2023; phenylalanine warning for PKU' },
+    '952':  { name: 'Cyclamate (E952)',         risk: 'high',   cat: 'Sweetener',          note: 'Banned in the US since 1969 due to bladder cancer concerns in animal studies' },
+    '954':  { name: 'Saccharin (E954)',         risk: 'medium', cat: 'Sweetener',          note: 'Linked to bladder cancer in rodents; classified "not classifiable as carcinogenic" in humans (IARC)' },
+    '955':  { name: 'Sucralose (E955)',         risk: 'low',    cat: 'Sweetener',          note: 'Growing evidence of gut microbiome disruption and possible metabolic effects at high doses' },
+    // --- Emulsifiers ---
+    '407':  { name: 'Carrageenan (E407)',       risk: 'high',   cat: 'Emulsifier',         note: 'Linked to intestinal inflammation in animal studies; controversial for people with IBS/IBD' },
+    '407a': { name: 'Carrageenan (E407a)',      risk: 'high',   cat: 'Emulsifier',         note: 'Same concerns as E407' },
+    '466':  { name: 'Carboxymethylcellulose (E466)', risk: 'medium', cat: 'Emulsifier',   note: 'Some studies link to gut microbiome disruption and low-grade inflammation' },
+    '476':  { name: 'PGPR (E476)',              risk: 'low',    cat: 'Emulsifier',         note: 'Used as cheap cocoa butter substitute; generally considered safe at permitted levels' },
+    // --- Colors ---
+    '150d': { name: 'Sulfite Ammonia Caramel (E150d)', risk: 'medium', cat: 'Color',      note: 'Contains 4-methylimidazole (4-MEI), classified as a possible carcinogen; found in colas' },
+    '171':  { name: 'Titanium Dioxide (E171)', risk: 'high',   cat: 'Color',              note: 'Banned in EU foods since 2022; potential carcinogen and accumulates in body tissues' },
+    // --- Other ---
+    '621':  { name: 'MSG (E621)',               risk: 'low',    cat: 'Flavor Enhancer',    note: 'Some people report sensitivity ("MSG symptom complex"); major scientific reviews show general safety' },
+    '627':  { name: 'Disodium Guanylate (E627)',risk: 'low',    cat: 'Flavor Enhancer',    note: 'Often paired with MSG; generally safe; avoid if gout-prone (high purines)' },
+    '631':  { name: 'Disodium Inosinate (E631)',risk: 'low',    cat: 'Flavor Enhancer',    note: 'Paired with MSG; generally safe; avoid if gout-prone' },
+};
+
+// ============================================================
+//  SCORING ENGINE
+// ============================================================
+function scoreProduct(product) {
+    const labels      = (product.labels_tags || []).join(' ').toLowerCase();
+    const ingredients = (product.ingredients_text || '').toLowerCase();
+    const categories  = (product.categories_tags || []).join(' ').toLowerCase();
+    const isOrganic   = labels.includes('organic');
+    const isNonGMO    = labels.includes('non-gmo') || labels.includes('non gmo') || labels.includes('project verified');
+
+    const result = {
+        pesticide:  { riskScore: 0, maxScore: 35, details: [] },
+        glyphosate: { riskScore: 0, maxScore: 25, details: [] },
+        additives:  { riskScore: 0, maxScore: 25, details: [] },
+        processing: { riskScore: 0, maxScore: 15, details: [] },
+    };
+
+    // ── Pesticide ──────────────────────────────────────────
+    if (isOrganic) {
+        result.pesticide.riskScore = 2;
+        result.pesticide.details.push({ label: 'Certified Organic', desc: 'Organic certification requires avoiding synthetic pesticides — very low residue risk.', type: 'ok', badge: 'ORGANIC' });
+    } else {
+        const dirtyHits  = DIRTY_DOZEN.filter(d => ingredients.includes(d) || categories.includes(d));
+        const cleanHits  = CLEAN_FIFTEEN.filter(c => ingredients.includes(c) || categories.includes(c));
+        const uniqueDirty = [...new Set(dirtyHits.map(d => d.replace('berr', 'berry')))];
+
+        if (dirtyHits.length >= 3) {
+            result.pesticide.riskScore = 32;
+            result.pesticide.details.push({
+                label: `Multiple "Dirty Dozen" ingredients`,
+                desc: `Contains several high-pesticide crops: ${uniqueDirty.slice(0,4).join(', ')}. These consistently show the highest pesticide residues in USDA testing.`,
+                type: 'severe', badge: 'HIGH RISK'
+            });
+        } else if (dirtyHits.length > 0) {
+            result.pesticide.riskScore = 20;
+            result.pesticide.details.push({
+                label: `"Dirty Dozen" ingredient detected`,
+                desc: `Contains ${uniqueDirty.join(', ')} — among the highest-pesticide crops per EWG's annual Shopper's Guide. Consider organic alternatives.`,
+                type: 'high', badge: 'CONCERN'
+            });
+        } else if (cleanHits.length > 0) {
+            result.pesticide.riskScore = 5;
+            result.pesticide.details.push({
+                label: 'Low-pesticide ingredients',
+                desc: `Ingredients include "Clean Fifteen" crops (${cleanHits.slice(0,3).join(', ')}) — these consistently show very low or no pesticide residues.`,
+                type: 'ok', badge: 'LOW'
+            });
+        } else {
+            result.pesticide.riskScore = 12;
+            result.pesticide.details.push({
+                label: 'Pesticide data not determinable',
+                desc: 'Ingredients could not be matched to known pesticide risk lists. This product is not organic, so some risk exists — unknown level.',
+                type: 'neutral', badge: 'UNKNOWN'
+            });
+        }
+    }
+
+    // ── Glyphosate ─────────────────────────────────────────
+    if (isOrganic) {
+        result.glyphosate.riskScore = 1;
+        result.glyphosate.details.push({ label: 'Organic — Glyphosate prohibited', desc: 'USDA Organic certification prohibits the use of glyphosate. Risk is very low.', type: 'ok', badge: 'VERY LOW' });
+    } else {
+        const found = [];
+        for (const crop of GLYPHOSATE_CROPS) {
+            if (crop.terms.some(t => ingredients.includes(t) || categories.includes(t))) {
+                found.push(crop);
+            }
+        }
+
+        if (found.length === 0) {
+            result.glyphosate.riskScore = 4;
+            result.glyphosate.details.push({ label: 'No high-risk glyphosate crops identified', desc: 'Main ingredients do not include crops commonly treated with glyphosate.', type: 'ok', badge: 'LOW' });
+        } else {
+            const highRisk  = found.filter(f => f.risk === 'high');
+            const medRisk   = found.filter(f => f.risk === 'medium');
+
+            if (highRisk.length >= 2) {
+                result.glyphosate.riskScore = 23;
+            } else if (highRisk.length === 1) {
+                result.glyphosate.riskScore = 16;
+            } else {
+                result.glyphosate.riskScore = 10;
+            }
+
+            found.forEach(crop => {
+                result.glyphosate.details.push({
+                    label: crop.terms[0].charAt(0).toUpperCase() + crop.terms[0].slice(1),
+                    desc: crop.note,
+                    type: crop.risk === 'high' ? 'high' : 'medium',
+                    badge: crop.risk.toUpperCase()
+                });
+            });
+        }
+
+        if (isNonGMO) {
+            result.glyphosate.riskScore = Math.max(0, result.glyphosate.riskScore - 7);
+            result.glyphosate.details.unshift({ label: 'Non-GMO Project Verified', desc: 'Reduces glyphosate exposure from GMO-linked sources (soy, corn, canola, sugar beet).', type: 'ok', badge: 'NON-GMO' });
+        }
+    }
+
+    // ── Additives ──────────────────────────────────────────
+    const tags = product.additives_tags || [];
+    const foundAdditives = [];
+
+    for (const tag of tags) {
+        // tag looks like "en:e102" or "en:e150d"
+        const key = tag.toLowerCase().replace(/^en:e/, '').replace(/-/g, '');
+        if (ADDITIVES[key]) foundAdditives.push(ADDITIVES[key]);
+    }
+
+    if (foundAdditives.length === 0) {
+        result.additives.riskScore = 0;
+        result.additives.details.push({ label: 'No concerning additives detected', desc: 'Product additives were either not flagged or not present in the database.', type: 'ok', badge: 'CLEAR' });
+    } else {
+        const severeCnt = foundAdditives.filter(a => a.risk === 'severe').length;
+        const highCnt   = foundAdditives.filter(a => a.risk === 'high').length;
+        const medCnt    = foundAdditives.filter(a => a.risk === 'medium').length;
+        result.additives.riskScore = Math.min((severeCnt * 13) + (highCnt * 7) + (medCnt * 3), 25);
+
+        foundAdditives.forEach(a => {
+            result.additives.details.push({ label: a.name, desc: `[${a.cat}] ${a.note}`, type: a.risk, badge: a.risk.toUpperCase() });
+        });
+    }
+
+    // ── Processing ─────────────────────────────────────────
+    const nova = product.nova_group;
+    const novaMap = {
+        1: { score: 0,  type: 'ok',     badge: 'NOVA 1',  label: 'Unprocessed food',           desc: 'Fresh, whole foods — no industrial processing. The gold standard.' },
+        2: { score: 4,  type: 'ok',     badge: 'NOVA 2',  label: 'Culinary ingredient',         desc: 'Minimally processed ingredients like oils, vinegar, flour, or salt.' },
+        3: { score: 8,  type: 'medium', badge: 'NOVA 3',  label: 'Processed food',              desc: 'Made from whole foods + some additives. Examples: canned fish, cheese, cured meats.' },
+        4: { score: 15, type: 'high',   badge: 'NOVA 4',  label: 'Ultra-processed (NOVA 4)',    desc: 'Industrial formulations with many additives, flavorings, and little whole food. Linked to poor health outcomes in large studies.' },
+    };
+
+    if (novaMap[nova]) {
+        const n = novaMap[nova];
+        result.processing.riskScore = n.score;
+        result.processing.details.push({ label: n.label, desc: n.desc, type: n.type, badge: n.badge });
+    } else {
+        result.processing.riskScore = 8;
+        result.processing.details.push({ label: 'Processing level unknown', desc: 'NOVA classification not available. Treat with moderate caution.', type: 'neutral', badge: 'UNKNOWN' });
+    }
+
+    // ── Final grade ─────────────────────────────────────────
+    const total = result.pesticide.riskScore + result.glyphosate.riskScore + result.additives.riskScore + result.processing.riskScore;
+
+    let grade, verdict, gradeClass, verdictBg;
+    if      (total <= 12) { grade = 'A'; verdict = 'Very low concern'; gradeClass = 'grade-A'; verdictBg = 'rgba(110,231,183,0.15)'; }
+    else if (total <= 28) { grade = 'B'; verdict = 'Generally safe';   gradeClass = 'grade-B'; verdictBg = 'rgba(134,239,172,0.15)'; }
+    else if (total <= 48) { grade = 'C'; verdict = 'Moderate concern'; gradeClass = 'grade-C'; verdictBg = 'rgba(253,224,71,0.15)'; }
+    else if (total <= 68) { grade = 'D'; verdict = 'High concern';     gradeClass = 'grade-D'; verdictBg = 'rgba(251,146,60,0.15)'; }
+    else                  { grade = 'F'; verdict = 'Avoid';            gradeClass = 'grade-F'; verdictBg = 'rgba(248,113,113,0.15)'; }
+
+    return { grade, gradeClass, verdict, verdictBg, total, categories: result };
+}
+
+// ============================================================
+//  UI RENDERING
+// ============================================================
+const BADGE_CLASS = { ok: 'badge-ok', low: 'badge-low', medium: 'badge-medium', high: 'badge-high', severe: 'badge-severe', neutral: 'badge-neutral', positive: 'badge-ok' };
+const RISK_CLASS  = { ok: 'risk-ok', low: 'risk-low', medium: 'risk-medium', high: 'risk-high', severe: 'risk-severe', neutral: '' };
+
+function getRiskLabel(riskScore, maxScore) {
+    const pct = riskScore / maxScore;
+    if (pct <= 0.12) return { label: 'Very Low', cls: 'risk-ok' };
+    if (pct <= 0.35) return { label: 'Low',      cls: 'risk-low' };
+    if (pct <= 0.58) return { label: 'Moderate', cls: 'risk-medium' };
+    if (pct <= 0.80) return { label: 'High',     cls: 'risk-high' };
+    return                  { label: 'Severe',   cls: 'risk-severe' };
+}
+
+function renderSection(title, icon, details) {
+    if (!details.length) return '';
+    return `
+        <div class="section-label">${icon} ${title}</div>
+        ${details.map(d => `
+            <div class="detail-card">
+                <div class="detail-row">
+                    <div class="detail-title">${d.label}</div>
+                    <span class="badge ${BADGE_CLASS[d.type] || 'badge-neutral'}">${d.badge}</span>
+                </div>
+                ${d.desc ? `<div class="detail-desc">${d.desc}</div>` : ''}
+            </div>
+        `).join('')}
+    `;
+}
+
+function renderResults(product, analysis) {
+    const { grade, gradeClass, verdict, verdictBg, total, categories } = analysis;
+    const name  = product.product_name || product.abbreviated_product_name || 'Unknown Product';
+    const brand = product.brands || '';
+    const verdictColor = { A:'#6ee7b7', B:'#86efac', C:'#fde047', D:'#fb923c', F:'#f87171' }[grade];
+    const fillColor    = verdictColor;
+
+    const pest  = getRiskLabel(categories.pesticide.riskScore,  categories.pesticide.maxScore);
+    const glyph = getRiskLabel(categories.glyphosate.riskScore, categories.glyphosate.maxScore);
+    const addit = getRiskLabel(categories.additives.riskScore,  categories.additives.maxScore);
+    const proc  = getRiskLabel(categories.processing.riskScore, categories.processing.maxScore);
+
+    let html = `
+        <div class="score-section">
+            <div class="score-circle ${gradeClass}">
+                <span class="score-letter">${grade}</span>
+                <span class="score-sublabel">Safety</span>
+            </div>
+            <div class="product-info">
+                <div class="product-name">${escHtml(name)}</div>
+                ${brand ? `<div class="product-brand">${escHtml(brand)}</div>` : ''}
+                <span class="verdict-pill" style="background:${verdictBg};color:${verdictColor}">${verdict}</span>
+            </div>
+        </div>
+
+        <div class="risk-bar-wrap">
+            <div class="risk-bar-labels"><span>Safe</span><span>Risky</span></div>
+            <div class="risk-bar">
+                <div class="risk-bar-fill" style="width:${Math.min((total / 100) * 100, 100)}%;background:${fillColor}"></div>
+            </div>
+        </div>
+
+        <div class="cat-grid">
+            <div class="cat-card">
+                <div class="cat-icon">🌱</div>
+                <div class="cat-name">Pesticides</div>
+                <div class="cat-risk ${pest.cls}">${pest.label}</div>
+                <div class="cat-sub">${categories.pesticide.riskScore}/${categories.pesticide.maxScore} pts</div>
+            </div>
+            <div class="cat-card">
+                <div class="cat-icon">☠️</div>
+                <div class="cat-name">Glyphosate</div>
+                <div class="cat-risk ${glyph.cls}">${glyph.label}</div>
+                <div class="cat-sub">${categories.glyphosate.riskScore}/${categories.glyphosate.maxScore} pts</div>
+            </div>
+            <div class="cat-card">
+                <div class="cat-icon">🧪</div>
+                <div class="cat-name">Additives</div>
+                <div class="cat-risk ${addit.cls}">${addit.label}</div>
+                <div class="cat-sub">${product.additives_n || 0} total found</div>
+            </div>
+            <div class="cat-card">
+                <div class="cat-icon">🏭</div>
+                <div class="cat-name">Processing</div>
+                <div class="cat-risk ${proc.cls}">${proc.label}</div>
+                <div class="cat-sub">NOVA ${product.nova_group || '?'}</div>
+            </div>
+        </div>
+
+        ${renderSection('Pesticide Risk', '🌱', categories.pesticide.details)}
+        ${renderSection('Glyphosate Risk', '☠️', categories.glyphosate.details)}
+        ${renderSection('Additive Risk', '🧪', categories.additives.details)}
+        ${renderSection('Processing Level', '🏭', categories.processing.details)}
+    `;
+
+    // Nutri-Score bonus section
+    if (product.nutriscore_grade) {
+        const ns = product.nutriscore_grade.toUpperCase();
+        const nsColor = { A:'#6ee7b7', B:'#86efac', C:'#fde047', D:'#fb923c', E:'#f87171' }[ns] || '#94a3b8';
+        html += `
+            <div class="section-label">🥗 Nutritional Quality</div>
+            <div class="detail-card">
+                <div class="detail-row">
+                    <div class="detail-title">Nutri-Score: <strong style="color:${nsColor}">${ns}</strong></div>
+                    <span class="badge" style="background:rgba(255,255,255,0.07);color:#aaa">EU SCORE</span>
+                </div>
+                <div class="detail-desc">European nutritional quality rating — considers calories, saturated fat, sugar, fiber, protein, and fruit/veg content. A = best, E = worst.</div>
+            </div>
+        `;
+    }
+
+    html += `
+        <div class="disclaimer">
+            ⚠️ This analysis uses publicly available ingredient data from Open Food Facts and EWG. Scores are estimates — always verify with certified lab testing for precise residue levels. Not medical advice.
+        </div>
+        <button class="scan-again" onclick="closePanel()">Scan Another Product</button>
+    `;
+
+    document.getElementById('resultsContent').innerHTML = html;
+}
+
+function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showLoading() {
+    document.getElementById('resultsContent').innerHTML = `
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Looking up product…</p>
+        </div>
+    `;
+    document.getElementById('resultsPanel').classList.add('visible');
+    document.getElementById('overlay').classList.add('visible');
+}
+
+function showError(msg) {
+    document.getElementById('resultsContent').innerHTML = `
+        <div class="error-state">
+            <div class="error-icon">🔍</div>
+            <div class="error-title">Not Found</div>
+            <div class="error-desc">${msg}</div>
+            <button class="scan-again" onclick="closePanel()" style="margin-top:20px">Try Again</button>
+        </div>
+    `;
+}
+
+function closePanel() {
+    document.getElementById('resultsPanel').classList.remove('visible');
+    document.getElementById('overlay').classList.remove('visible');
+}
+
+// ============================================================
+//  API LOOKUP
+// ============================================================
+async function lookupBarcode(barcode) {
+    barcode = String(barcode).trim();
+    if (!barcode) return;
+
+    showLoading();
+    stopScanner();
+
+    try {
+        const res  = await fetch(`https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(barcode)}.json`);
+        const data = await res.json();
+
+        if (data.status !== 1 || !data.product) {
+            showError(`No product found for barcode <strong>${escHtml(barcode)}</strong>.<br><br>This product may not be in the Open Food Facts database yet. You can add it at <em>openfoodfacts.org</em>.`);
+            return;
+        }
+
+        const analysis = scoreProduct(data.product);
+        renderResults(data.product, analysis);
+
+    } catch (err) {
+        showError('Could not connect. Please check your internet connection and try again.');
+    }
+}
+
+// ============================================================
+//  SCANNER
+// ============================================================
+let scanner  = null;
+let scanning = false;
+
+function toggleScanner() {
+    if (scanning) stopScanner(); else startScanner();
+}
+
+function startScanner() {
+    const btn = document.getElementById('scanBtn');
+
+    if (!scanner) {
+        scanner = new Html5Qrcode('reader');
+    }
+
+    const formats = [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.ITF,
+    ];
+
+    scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 240, height: 120 }, formatsToSupport: formats },
+        (decoded) => {
+            lookupBarcode(decoded);
+        },
+        () => {} // ignore scanning frame errors
+    ).then(() => {
+        scanning = true;
+        document.getElementById('placeholder').style.display = 'none';
+        document.getElementById('scanOverlay').style.display = 'flex';
+        btn.textContent = 'Stop Camera';
+        btn.classList.add('danger');
+    }).catch(() => {
+        alert('Camera access denied. Please allow camera access or use "Enter Barcode" instead.');
+    });
+}
+
+function stopScanner() {
+    if (scanner && scanning) {
+        scanner.stop().catch(() => {});
+        scanning = false;
+        const btn = document.getElementById('scanBtn');
+        btn.textContent = 'Start Scanner';
+        btn.classList.remove('danger');
+        document.getElementById('scanOverlay').style.display = 'none';
+        document.getElementById('placeholder').style.display = 'flex';
+    }
+}
+
+// ============================================================
+//  MANUAL ENTRY
+// ============================================================
+function toggleManual() {
+    const el = document.getElementById('manualEntry');
+    const isVisible = el.classList.toggle('visible');
+    if (isVisible) setTimeout(() => document.getElementById('barcodeInput').focus(), 100);
+}
+
+function lookupManual() {
+    const val = document.getElementById('barcodeInput').value.trim();
+    if (!val) return;
+    document.getElementById('manualEntry').classList.remove('visible');
+    document.getElementById('barcodeInput').value = '';
+    lookupBarcode(val);
+}
+
+document.getElementById('barcodeInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') lookupManual();
+});
+</script>
+
+</body>
+</html>
