@@ -110,10 +110,12 @@
         .controls {
             padding: 16px 20px 0;
             display: flex;
-            gap: 10px;
+            gap: 8px;
             max-width: 460px;
             margin: 0 auto;
         }
+        /* Let the secondary buttons shrink a bit so all 3 fit */
+        .controls .btn-secondary { font-size: 14px; padding: 15px 8px; }
 
         .btn {
             flex: 1;
@@ -403,6 +405,64 @@
         .error-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
         .error-desc { font-size: 13px; color: rgba(255,255,255,0.45); line-height: 1.5; }
 
+        /* ── Search results ── */
+        .search-results {
+            padding: 0 20px;
+            max-width: 460px;
+            margin: 0 auto;
+        }
+        .search-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: rgba(255,255,255,0.3);
+            margin: 12px 0 8px;
+        }
+        .search-result-item {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 13px;
+            padding: 12px 14px;
+            margin-bottom: 7px;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.15s;
+            display: block;
+        }
+        .search-result-item:active { background: rgba(255,255,255,0.09); }
+        .sri-name  { font-size: 14px; font-weight: 600; color: #f0f0f5; margin-bottom: 2px; }
+        .sri-brand { font-size: 12px; color: rgba(255,255,255,0.4); }
+        .search-loading { text-align: center; padding: 20px 0; color: rgba(255,255,255,0.4); font-size: 13px; }
+        .search-empty   { text-align: center; padding: 20px 0; color: rgba(255,255,255,0.4); font-size: 13px; line-height: 1.6; }
+
+        /* ── Organic override ── */
+        .override-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 18px;
+            padding: 12px 14px;
+            background: rgba(110,231,183,0.05);
+            border: 1px solid rgba(110,231,183,0.15);
+            border-radius: 13px;
+        }
+        .detected-organic { background: rgba(110,231,183,0.1); border-color: rgba(110,231,183,0.3); }
+        .override-label { font-size: 13px; color: rgba(255,255,255,0.65); }
+        .override-btn {
+            padding: 7px 14px;
+            border-radius: 20px;
+            border: none;
+            background: rgba(110,231,183,0.18);
+            color: #6ee7b7;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .override-undo { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.4); }
+
         /* ── Disclaimer ── */
         .disclaimer {
             margin-top: 18px;
@@ -450,18 +510,28 @@
 <!-- Controls -->
 <div class="controls">
     <button class="btn btn-primary" id="scanBtn" onclick="toggleScanner()">Start Scanner</button>
-    <button class="btn btn-secondary" onclick="toggleManual()">Enter Barcode</button>
+    <button class="btn btn-secondary" id="barcodeBtn" onclick="toggleManual('barcode')">Barcode #</button>
+    <button class="btn btn-secondary" id="nameBtn" onclick="toggleManual('name')">Search Name</button>
 </div>
 
 <p class="tip">Works with UPC, EAN, and most grocery barcodes</p>
 
 <!-- Manual entry -->
 <div class="manual-entry" id="manualEntry">
-    <div class="manual-row">
+    <!-- Barcode mode -->
+    <div class="manual-row" id="barcodeRow" style="display:none">
         <input type="text" id="barcodeInput" placeholder="e.g. 0038000845550" inputmode="numeric" pattern="[0-9]*">
         <button class="manual-go" onclick="lookupManual()">Go</button>
     </div>
+    <!-- Name search mode -->
+    <div class="manual-row" id="nameRow" style="display:none">
+        <input type="text" id="nameInput" placeholder="e.g. Ocean's Halo Ramen Broth">
+        <button class="manual-go" onclick="searchByName()">Search</button>
+    </div>
 </div>
+
+<!-- Search results picker -->
+<div class="search-results" id="searchResults"></div>
 
 <!-- Overlay -->
 <div class="overlay" id="overlay" onclick="closePanel()"></div>
@@ -550,13 +620,28 @@ const ADDITIVES = {
 // ============================================================
 //  SCORING ENGINE
 // ============================================================
-function scoreProduct(product) {
-    const labels      = (product.labels_tags || []).join(' ').toLowerCase();
-    const ingredients = (product.ingredients_text || '').toLowerCase();
-    const categories  = (product.categories_tags || []).join(' ').toLowerCase();
-    const productName = (product.product_name || '').toLowerCase();
-    const isOrganic   = labels.includes('organic') || categories.includes('organic') || productName.includes('organic');
-    const isNonGMO    = labels.includes('non-gmo') || labels.includes('non gmo') || labels.includes('project verified') || labels.includes('non gmo project');
+function scoreProduct(product, forceOrganic = false) {
+    const labels           = (product.labels_tags || []).join(' ').toLowerCase();
+    const labelsStr        = (product.labels || '').toLowerCase();
+    const ingredients      = (product.ingredients_text || '').toLowerCase();
+    const categories       = (product.categories_tags || []).join(' ').toLowerCase();
+    const productName      = (product.product_name || '').toLowerCase();
+    const ingredAnalysis   = (product.ingredients_analysis_tags || []).join(' ').toLowerCase();
+    const miscTags         = (product.misc_tags || []).join(' ').toLowerCase();
+
+    // Count "organic" mentions in ingredients text — if it appears as a modifier
+    // on 2+ ingredients (e.g. "organic soy sauce, organic tamari"), treat as organic product
+    const organicMentions = (ingredients.match(/\borganic\b/g) || []).length;
+
+    const isOrganic = forceOrganic ||
+                      labels.includes('organic') || labelsStr.includes('organic') ||
+                      categories.includes('organic') || productName.includes('organic') ||
+                      ingredAnalysis.includes('organic') || miscTags.includes('organic') ||
+                      organicMentions >= 2;
+
+    const isNonGMO  = labels.includes('non-gmo') || labels.includes('non gmo') ||
+                      labels.includes('project verified') || labels.includes('non gmo project') ||
+                      ingredAnalysis.includes('non-gmo') || labelsStr.includes('non-gmo');
 
     const result = {
         pesticide:  { riskScore: 0, maxScore: 35, details: [] },
@@ -674,17 +759,35 @@ function scoreProduct(product) {
 
     // ── Processing ─────────────────────────────────────────
     const nova = product.nova_group;
+    // If NOVA 4 but organic and few additives, reduce penalty — "natural flavor" alone can
+    // trigger NOVA 4 even on otherwise clean products.
+    const hasNaturalFlavor = ingredients.includes('natural flavor') || ingredients.includes('natural flavour');
+    const fewAdditives = (product.additives_n || 0) <= 2;
     const novaMap = {
-        1: { score: 0,  type: 'ok',     badge: 'NOVA 1',  label: 'Unprocessed food',           desc: 'Fresh, whole foods — no industrial processing. The gold standard.' },
-        2: { score: 4,  type: 'ok',     badge: 'NOVA 2',  label: 'Culinary ingredient',         desc: 'Minimally processed ingredients like oils, vinegar, flour, or salt.' },
-        3: { score: 8,  type: 'medium', badge: 'NOVA 3',  label: 'Processed food',              desc: 'Made from whole foods + some additives. Examples: canned fish, cheese, cured meats.' },
-        4: { score: 15, type: 'high',   badge: 'NOVA 4',  label: 'Ultra-processed (NOVA 4)',    desc: 'Industrial formulations with many additives, flavorings, and little whole food. Linked to poor health outcomes in large studies.' },
+        1: { score: 0,  type: 'ok',     badge: 'NOVA 1', label: 'Unprocessed food',     desc: 'Fresh, whole foods — no industrial processing. The gold standard.' },
+        2: { score: 4,  type: 'ok',     badge: 'NOVA 2', label: 'Culinary ingredient',   desc: 'Minimally processed ingredients like oils, vinegar, flour, or salt.' },
+        3: { score: 8,  type: 'medium', badge: 'NOVA 3', label: 'Processed food',        desc: 'Made from whole foods + some additives. Examples: canned fish, cheese, cured meats.' },
+        4: { score: 15, type: 'high',   badge: 'NOVA 4', label: 'Ultra-processed (NOVA 4)', desc: 'Industrial formulations with many additives, flavorings, and little whole food. Linked to poor health outcomes in large studies.' },
     };
 
     if (novaMap[nova]) {
         const n = novaMap[nova];
-        result.processing.riskScore = n.score;
-        result.processing.details.push({ label: n.label, desc: n.desc, type: n.type, badge: n.badge });
+        let score = n.score;
+        let desc  = n.desc;
+        let type  = n.type;
+
+        // Soften NOVA 4 if the only trigger is natural flavor on an otherwise clean product
+        if (nova === 4 && isOrganic && fewAdditives && hasNaturalFlavor) {
+            score = 7;
+            type  = 'medium';
+            desc  = 'Classified NOVA 4 likely because of "natural flavor" — this ingredient alone can trigger the label even for simple, organic products. Actual processing level is probably closer to NOVA 3.';
+        } else if (nova === 4 && hasNaturalFlavor && fewAdditives) {
+            score = 10;
+            desc  += ' Note: "natural flavor" is a common NOVA 4 trigger even in otherwise simple products.';
+        }
+
+        result.processing.riskScore = score;
+        result.processing.details.push({ label: n.label, desc, type, badge: n.badge });
     } else {
         result.processing.riskScore = 8;
         result.processing.details.push({ label: 'Processing level unknown', desc: 'NOVA classification not available. Treat with moderate caution.', type: 'neutral', badge: 'UNKNOWN' });
@@ -700,7 +803,7 @@ function scoreProduct(product) {
     else if (total <= 68) { grade = 'D'; verdict = 'High concern';     gradeClass = 'grade-D'; verdictBg = 'rgba(251,146,60,0.15)'; }
     else                  { grade = 'F'; verdict = 'Avoid';            gradeClass = 'grade-F'; verdictBg = 'rgba(248,113,113,0.15)'; }
 
-    return { grade, gradeClass, verdict, verdictBg, total, categories: result };
+    return { grade, gradeClass, verdict, verdictBg, total, categories: result, detectedOrganic: isOrganic };
 }
 
 // ============================================================
@@ -815,6 +918,24 @@ function renderResults(product, analysis) {
         `;
     }
 
+    // Organic override toggle — shown when organic wasn't auto-detected
+    const detectedOrganic = analysis.detectedOrganic;
+    if (!detectedOrganic) {
+        html += `
+            <div class="override-row">
+                <span class="override-label">🌿 Product is actually organic?</span>
+                <button class="override-btn" onclick="toggleOrganicOverride()">Mark as Organic</button>
+            </div>
+        `;
+    } else {
+        html += `
+            <div class="override-row detected-organic">
+                <span class="override-label">🌿 Detected as organic</span>
+                <button class="override-btn override-undo" onclick="toggleOrganicOverride()">Undo</button>
+            </div>
+        `;
+    }
+
     html += `
         <div class="disclaimer">
             ⚠️ This analysis uses publicly available ingredient data from Open Food Facts and EWG. Scores are estimates — always verify with certified lab testing for precise residue levels. Not medical advice.
@@ -851,6 +972,13 @@ function showError(msg) {
     `;
 }
 
+function toggleOrganicOverride() {
+    if (!lastProduct) return;
+    organicOverride = !organicOverride;
+    const analysis = scoreProduct(lastProduct, organicOverride);
+    renderResults(lastProduct, analysis);
+}
+
 function closePanel() {
     document.getElementById('resultsPanel').classList.remove('visible');
     document.getElementById('overlay').classList.remove('visible');
@@ -875,6 +1003,8 @@ async function lookupBarcode(barcode) {
             return;
         }
 
+        lastProduct = data.product;
+        organicOverride = false;
         const analysis = scoreProduct(data.product);
         renderResults(data.product, analysis);
 
@@ -886,7 +1016,9 @@ async function lookupBarcode(barcode) {
 // ============================================================
 //  SCANNER
 // ============================================================
-let scanner  = null;
+let scanner        = null;
+let lastProduct    = null;
+let organicOverride = false;
 let scanning = false;
 
 function toggleScanner() {
@@ -912,7 +1044,7 @@ function startScanner() {
 
     scanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 240, height: 120 }, formatsToSupport: formats },
+        { fps: 15, qrbox: { width: 300, height: 150 }, formatsToSupport: formats, experimentalFeatures: { useBarCodeDetectorIfSupported: true } },
         (decoded) => {
             lookupBarcode(decoded);
         },
@@ -943,10 +1075,37 @@ function stopScanner() {
 // ============================================================
 //  MANUAL ENTRY
 // ============================================================
-function toggleManual() {
-    const el = document.getElementById('manualEntry');
-    const isVisible = el.classList.toggle('visible');
-    if (isVisible) setTimeout(() => document.getElementById('barcodeInput').focus(), 100);
+let activeInputMode = null;
+
+function toggleManual(mode) {
+    const entry      = document.getElementById('manualEntry');
+    const barcodeRow = document.getElementById('barcodeRow');
+    const nameRow    = document.getElementById('nameRow');
+
+    // If tapping the same button again, close it
+    if (activeInputMode === mode && entry.classList.contains('visible')) {
+        entry.classList.remove('visible');
+        barcodeRow.style.display = 'none';
+        nameRow.style.display    = 'none';
+        activeInputMode = null;
+        clearSearchResults();
+        return;
+    }
+
+    stopScanner();
+    clearSearchResults();
+    activeInputMode = mode;
+    entry.classList.add('visible');
+
+    if (mode === 'barcode') {
+        barcodeRow.style.display = 'flex';
+        nameRow.style.display    = 'none';
+        setTimeout(() => document.getElementById('barcodeInput').focus(), 100);
+    } else {
+        nameRow.style.display    = 'flex';
+        barcodeRow.style.display = 'none';
+        setTimeout(() => document.getElementById('nameInput').focus(), 100);
+    }
 }
 
 function lookupManual() {
@@ -954,11 +1113,77 @@ function lookupManual() {
     if (!val) return;
     document.getElementById('manualEntry').classList.remove('visible');
     document.getElementById('barcodeInput').value = '';
+    activeInputMode = null;
     lookupBarcode(val);
 }
 
+async function searchByName() {
+    const query = document.getElementById('nameInput').value.trim();
+    if (!query) return;
+
+    clearSearchResults();
+    const el = document.getElementById('searchResults');
+    el.innerHTML = `<div class="search-loading"><div class="spinner" style="width:24px;height:24px;border-width:2px;margin:0 auto 8px"></div><p>Searching…</p></div>`;
+
+    try {
+        const fields = 'code,product_name,brands,additives_tags,nova_group,nutriscore_grade,labels_tags,labels,categories_tags,ingredients_text,additives_n,ingredients_analysis_tags,misc_tags';
+        const url    = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&json=1&page_size=6&fields=${fields}`;
+        const res    = await fetch(url);
+        const data   = await res.json();
+
+        const products = (data.products || []).filter(p => p.product_name);
+
+        if (products.length === 0) {
+            el.innerHTML = `<div class="search-empty">No results found for "<strong>${escHtml(query)}</strong>".<br>Try a shorter or different name.</div>`;
+            return;
+        }
+
+        el.innerHTML = `<div class="search-label">Tap a product to scan it</div>` +
+            products.map(p => `
+                <button class="search-result-item" onclick="selectSearchResult('${escHtml(p.code)}')">
+                    <div class="sri-name">${escHtml(p.product_name)}</div>
+                    <div class="sri-brand">${escHtml(p.brands || '')}</div>
+                </button>
+            `).join('');
+
+        // Cache products by code so we don't need to re-fetch
+        products.forEach(p => { searchCache[p.code] = p; });
+
+    } catch (err) {
+        el.innerHTML = `<div class="search-empty">Search failed. Check your connection.</div>`;
+    }
+}
+
+function clearSearchResults() {
+    document.getElementById('searchResults').innerHTML = '';
+}
+
+function selectSearchResult(code) {
+    const product = searchCache[code];
+    clearSearchResults();
+    document.getElementById('manualEntry').classList.remove('visible');
+    document.getElementById('nameInput').value = '';
+    activeInputMode = null;
+
+    if (product) {
+        // Score directly from cache — no second network request needed
+        lastProduct    = product;
+        organicOverride = false;
+        showLoading();
+        const analysis = scoreProduct(product);
+        renderResults(product, analysis);
+    } else {
+        lookupBarcode(code);
+    }
+}
+
+const searchCache = {};
+
 document.getElementById('barcodeInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') lookupManual();
+});
+document.getElementById('nameInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') searchByName();
 });
 </script>
 
