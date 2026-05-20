@@ -1664,42 +1664,49 @@ async function startScanner() {
     const btn     = document.getElementById('scanBtn');
     const videoEl = document.getElementById('scanVideo');
 
-    // Try high-res first; fall back to any camera the device will give us
-    async function getCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Camera not supported in this browser. Try "Search Name" instead.');
+        return;
+    }
+
+    try {
+        // Inline getUserMedia directly (iOS Safari requires user-gesture to be in the direct call chain)
+        // Try high-res first; fall back to whatever the device will give
         try {
-            return await navigator.mediaDevices.getUserMedia({
+            videoStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     facingMode: { ideal: 'environment' },
                     width:  { ideal: 1920 },
                     height: { ideal: 1080 },
                 }
             });
-        } catch (e) {
-            // OverconstrainedError, NotReadableError, etc. — try with bare minimum
-            return await navigator.mediaDevices.getUserMedia({
+        } catch (constraintErr) {
+            videoStream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: { ideal: 'environment' } }
             });
         }
-    }
 
-    try {
-        videoStream = await getCamera();
         videoEl.srcObject = videoStream;
         await videoEl.play();
         scanningUIOn(btn, videoEl);
 
+        // Try native BarcodeDetector first; fall back to ZXing if it errors
+        // (iOS Chrome may have BarcodeDetector in scope but throw on instantiation)
+        let usedNative = false;
         if ('BarcodeDetector' in window) {
-            // ── Native BarcodeDetector (Chrome on Android — fast & accurate) ──
-            startNativeLoop(videoEl);
-        } else {
-            // ── ZXing fallback (Safari / iOS / Firefox) ──
-            // ZXing continuous polling loop — decodeFromVideoElement is single-frame,
-            // so we call it repeatedly ourselves
+            try {
+                startNativeLoop(videoEl);
+                usedNative = true;
+            } catch (nativeErr) {
+                console.warn('BarcodeDetector failed, falling back to ZXing:', nativeErr);
+            }
+        }
+        if (!usedNative) {
+            // ── ZXing fallback (Safari / iOS / Firefox / iOS Chrome) ──
             try {
                 zxingReader = new ZXing.BrowserMultiFormatReader();
                 zxingLoop(videoEl);
             } catch (zxErr) {
-                // ZXing failed to init — camera still shows, fallback banner will appear
                 console.warn('ZXing init failed:', zxErr);
             }
         }
@@ -1709,7 +1716,7 @@ async function startScanner() {
     } catch (err) {
         const denied = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
         if (denied) {
-            alert('Camera access was blocked. Please tap the camera icon in your browser address bar and allow access, then try again.');
+            alert('Camera access was blocked. Please tap the camera icon in your browser\'s address bar and allow access, then try again.');
         } else {
             alert('Could not start camera (' + (err.name || 'unknown error') + '). Try "Search Name" instead.');
         }
