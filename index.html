@@ -108,15 +108,30 @@
         .scanner-placeholder-text { font-size: 14px; }
 
         /* ── Controls ── */
-        .controls {
+        .controls-wrap {
             padding: 16px 20px 0;
-            display: flex;
-            gap: 8px;
             max-width: 460px;
             margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
-        /* Let the secondary buttons shrink a bit so all 3 fit */
-        .controls .btn-secondary { font-size: 14px; padding: 15px 8px; }
+        .btn-full { width: 100%; }
+        .controls-row {
+            display: flex;
+            gap: 8px;
+        }
+        .controls-row .btn-secondary {
+            flex: 1;
+            font-size: 13px;
+            padding: 12px 6px;
+        }
+        .plu-hint {
+            font-size: 11px;
+            color: rgba(255,255,255,0.3);
+            margin-top: 8px;
+            text-align: center;
+        }
 
         .btn {
             flex: 1;
@@ -581,25 +596,33 @@
 </div>
 
 <!-- Controls -->
-<div class="controls">
-    <button class="btn btn-primary" id="scanBtn" onclick="toggleScanner()">Start Scanner</button>
-    <button class="btn btn-secondary" id="barcodeBtn" onclick="toggleManual('barcode')">Barcode #</button>
-    <button class="btn btn-secondary" id="nameBtn" onclick="toggleManual('name')">Search Name</button>
+<div class="controls-wrap">
+    <button class="btn btn-primary btn-full" id="scanBtn" onclick="toggleScanner()">Start Scanner</button>
+    <div class="controls-row">
+        <button class="btn btn-secondary" id="barcodeBtn" onclick="toggleManual('barcode')">Barcode #</button>
+        <button class="btn btn-secondary" id="nameBtn"    onclick="toggleManual('name')">Search Name</button>
+        <button class="btn btn-secondary" id="pluBtn"     onclick="toggleManual('plu')">🏷 PLU Code</button>
+    </div>
 </div>
 
-<p class="tip">Works with UPC, EAN, and most grocery barcodes</p>
+<p class="tip">Works with UPC, EAN, grocery barcodes, and produce PLU stickers</p>
 
 <!-- Manual entry -->
 <div class="manual-entry" id="manualEntry">
-    <!-- Barcode mode -->
     <div class="manual-row" id="barcodeRow" style="display:none">
         <input type="text" id="barcodeInput" placeholder="e.g. 0038000845550" inputmode="numeric" pattern="[0-9]*">
         <button class="manual-go" onclick="lookupManual()">Go</button>
     </div>
-    <!-- Name search mode -->
     <div class="manual-row" id="nameRow" style="display:none">
         <input type="text" id="nameInput" placeholder="e.g. Ocean's Halo Ramen Broth">
         <button class="manual-go" onclick="searchByName()">Search</button>
+    </div>
+    <div id="pluRow" style="display:none">
+        <div class="manual-row">
+            <input type="text" id="pluInput" placeholder="e.g. 4011 or 94011 (organic)" inputmode="numeric" pattern="[0-9]*" maxlength="5">
+            <button class="manual-go" onclick="lookupPLU()">Go</button>
+        </div>
+        <p class="plu-hint">4-digit = conventional · starts with 9 = organic · starts with 8 = GMO</p>
     </div>
 </div>
 
@@ -698,6 +721,509 @@ const ADDITIVES = {
     '627':  { name: 'Disodium Guanylate (E627)',risk: 'low',    cat: 'Flavor Enhancer',    note: 'Often paired with MSG; generally safe; avoid if gout-prone (high purines)' },
     '631':  { name: 'Disodium Inosinate (E631)',risk: 'low',    cat: 'Flavor Enhancer',    note: 'Paired with MSG; generally safe; avoid if gout-prone' },
 };
+
+// ============================================================
+//  PLU DATABASE
+//  Keys are the base 4-digit code. Organic = prefix 9, GMO = prefix 8.
+//  dirty: on EWG Dirty Dozen | clean: on EWG Clean Fifteen
+// ============================================================
+const PLU_DB = {
+    // ── Dirty Dozen ──────────────────────────────────────────
+    // Strawberries (#1)
+    '3283': { name: 'Strawberries',         dirty: true,  clean: false, note: '#1 on EWG Dirty Dozen — highest pesticide load of any produce tested' },
+    '4267': { name: 'Strawberries',         dirty: true,  clean: false, note: '#1 on EWG Dirty Dozen' },
+    // Spinach (#2)
+    '3082': { name: 'Spinach',              dirty: true,  clean: false, note: '#2 Dirty Dozen — high levels of permethrin, a neurotoxic pesticide' },
+    '4090': { name: 'Spinach',              dirty: true,  clean: false, note: '#2 Dirty Dozen' },
+    // Kale / Collard / Mustard Greens (#3)
+    '4627': { name: 'Kale',                 dirty: true,  clean: false, note: 'Dirty Dozen — over 100 different pesticides detected in USDA testing' },
+    '4561': { name: 'Kale',                 dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '3382': { name: 'Collard Greens',       dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4614': { name: 'Mustard Greens',       dirty: true,  clean: false },
+    // Peaches (#4)
+    '4040': { name: 'Peach',                dirty: true,  clean: false, note: 'Dirty Dozen — thin skin means pesticides absorb easily' },
+    '4041': { name: 'Peach',                dirty: true,  clean: false, note: 'Dirty Dozen' },
+    // Pears (#5)
+    '4404': { name: "D'Anjou Pear",         dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4405': { name: 'Bosc Pear',            dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4406': { name: 'Bartlett Pear',        dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '3107': { name: 'Pear',                 dirty: true,  clean: false, note: 'Dirty Dozen' },
+    // Nectarines (#6)
+    '4044': { name: 'Nectarine',            dirty: true,  clean: false, note: 'Dirty Dozen — similar to peaches, high residue risk' },
+    '4378': { name: 'Nectarine',            dirty: true,  clean: false, note: 'Dirty Dozen' },
+    // Apples (#7)
+    '4130': { name: 'Apple',                dirty: true,  clean: false, note: 'Dirty Dozen — frequently found with multiple pesticide residues' },
+    '4131': { name: 'Braeburn Apple',       dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4132': { name: 'Red Delicious Apple',  dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4133': { name: 'Golden Delicious Apple', dirty: true, clean: false, note: 'Dirty Dozen' },
+    '4134': { name: 'Granny Smith Apple',   dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4135': { name: 'Fuji Apple',           dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4136': { name: 'Gala Apple',           dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4167': { name: 'Honeycrisp Apple',     dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4174': { name: 'Pink Lady Apple',      dirty: true,  clean: false, note: 'Dirty Dozen' },
+    // Bell & Hot Peppers (#8)
+    '4065': { name: 'Green Bell Pepper',    dirty: true,  clean: false, note: 'Dirty Dozen — up to 115 different pesticides found in testing' },
+    '4066': { name: 'Red Bell Pepper',      dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4688': { name: 'Yellow Bell Pepper',   dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4089': { name: 'Orange Bell Pepper',   dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4529': { name: 'Jalapeño',             dirty: true,  clean: false, note: 'Dirty Dozen (hot peppers)' },
+    '4696': { name: 'Serrano Pepper',       dirty: true,  clean: false, note: 'Dirty Dozen (hot peppers)' },
+    // Cherries (#9)
+    '3097': { name: 'Cherries',             dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4924': { name: 'Cherries',             dirty: true,  clean: false, note: 'Dirty Dozen' },
+    // Blueberries (#10)
+    '4920': { name: 'Blueberries',          dirty: true,  clean: false, note: 'Dirty Dozen 2024 — newly added; significant fungicide residues found' },
+    // Green Beans (#11)
+    '4072': { name: 'Green Beans',          dirty: true,  clean: false, note: 'Dirty Dozen 2024 — commonly treated with acephate, a restricted pesticide' },
+    '4066': { name: 'Green Beans',          dirty: true,  clean: false },
+    // Grapes (#12)
+    '4022': { name: 'Green Grapes',         dirty: true,  clean: false, note: 'Dirty Dozen — imported grapes especially high in residues' },
+    '4023': { name: 'Red Grapes',           dirty: true,  clean: false, note: 'Dirty Dozen' },
+    '4924': { name: 'Grapes',              dirty: true,  clean: false, note: 'Dirty Dozen' },
+
+    // ── Clean Fifteen ─────────────────────────────────────────
+    '4770': { name: 'Hass Avocado',         dirty: false, clean: true,  note: 'Clean Fifteen #1 — thick skin protects the flesh; nearly no pesticide residue detected' },
+    '4225': { name: 'Avocado',              dirty: false, clean: true,  note: 'Clean Fifteen — very low pesticide risk' },
+    '4046': { name: 'Avocado',              dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4096': { name: 'Sweet Corn',           dirty: false, clean: true,  note: 'Clean Fifteen — low pesticide residue; note: may be GMO if not labeled organic/non-GMO', glyphosate: 'medium' },
+    '4430': { name: 'Pineapple',            dirty: false, clean: true,  note: 'Clean Fifteen — outer skin acts as a barrier' },
+    '4397': { name: 'Pineapple',            dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4078': { name: 'Yellow Onion',         dirty: false, clean: true,  note: 'Clean Fifteen — very low pesticide residue' },
+    '4093': { name: 'Red Onion',            dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4165': { name: 'White Onion',          dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4394': { name: 'Papaya',               dirty: false, clean: true,  note: 'Clean Fifteen — low residue; some papayas are GMO (Rainbow variety), non-organic may be GMO', glyphosate: 'low' },
+    '4682': { name: 'Asparagus',            dirty: false, clean: true,  note: 'Clean Fifteen — naturally resistant to many pests, minimal pesticide needed' },
+    '4050': { name: 'Honeydew',             dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4300': { name: 'Kiwi',                 dirty: false, clean: true,  note: 'Clean Fifteen — skin is not eaten; low residue in flesh' },
+    '3028': { name: 'Green Cabbage',        dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '3027': { name: 'Red Cabbage',          dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4227': { name: 'White Mushrooms',      dirty: false, clean: true,  note: 'Clean Fifteen — grown indoors, very low pesticide exposure' },
+    '4682': { name: 'Cremini Mushrooms',    dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '3114': { name: 'Mango',                dirty: false, clean: true,  note: 'Clean Fifteen — thick skin, low residue in flesh' },
+    '4051': { name: 'Mango',                dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4663': { name: 'Sweet Potato',         dirty: false, clean: true,  note: 'Clean Fifteen — low residue, good choice either way' },
+    '4032': { name: 'Watermelon (seedless)',dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4038': { name: 'Watermelon',           dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '3144': { name: 'Carrots',              dirty: false, clean: true,  note: 'Clean Fifteen' },
+    '4562': { name: 'Carrot',               dirty: false, clean: true,  note: 'Clean Fifteen' },
+
+    // ── Other common produce (moderate / unknown risk) ────────
+    '4011': { name: 'Banana',               dirty: false, clean: false, note: 'Generally low pesticide residue — thick peel protects the fruit' },
+    '4012': { name: 'Baby Banana',          dirty: false, clean: false, note: 'Generally low pesticide residue' },
+    '4053': { name: 'Broccoli',             dirty: false, clean: false, note: 'Moderate risk — wash thoroughly; consider organic' },
+    '4062': { name: 'Broccoli Crown',       dirty: false, clean: false, note: 'Moderate risk' },
+    '4051': { name: 'Lemon',                dirty: false, clean: false, note: 'Low-moderate — if using zest, buy organic' },
+    '4959': { name: 'Lime',                 dirty: false, clean: false, note: 'Low-moderate — if using zest, buy organic' },
+    '3107': { name: 'Navel Orange',         dirty: false, clean: false, note: 'Low risk in flesh; buy organic if using peel or zest' },
+    '4280': { name: 'Red Grapefruit',       dirty: false, clean: false, note: 'Low-moderate risk' },
+    '4281': { name: 'White Grapefruit',     dirty: false, clean: false, note: 'Low-moderate risk' },
+    '4067': { name: 'Cucumber',             dirty: false, clean: false, note: 'Moderate risk — peel if not organic' },
+    '4664': { name: 'Roma Tomato',          dirty: false, clean: false, note: 'Moderate risk — tomatoes have come off Dirty Dozen but still show residues' },
+    '3421': { name: 'Tomato',               dirty: false, clean: false, note: 'Moderate risk' },
+    '4082': { name: 'Cherry Tomato',        dirty: false, clean: false, note: 'Moderate risk' },
+    '4088': { name: 'Celery',               dirty: false, clean: false, note: 'High risk — formerly on Dirty Dozen; still shows significant residues. Buy organic.' },
+    '4274': { name: 'Romaine Lettuce',      dirty: false, clean: false, note: 'Moderate-high risk — buy organic when possible' },
+    '3344': { name: 'Iceberg Lettuce',      dirty: false, clean: false, note: 'Moderate risk' },
+    '3274': { name: 'Cantaloupe',           dirty: false, clean: false, note: 'Low-moderate — thick rind protects flesh' },
+};
+
+function lookupPLU() {
+    const raw = document.getElementById('pluInput').value.trim().replace(/\D/g, '');
+    if (!raw) return;
+
+    document.getElementById('pluInput').value = '';
+    document.getElementById('manualEntry').classList.remove('visible');
+    document.getElementById('pluRow').style.display = 'none';
+    activeInputMode = null;
+
+    let code = raw;
+    let isOrganic = false;
+    let isGMO     = false;
+
+    if (raw.length === 5) {
+        if (raw[0] === '9') { isOrganic = true; code = raw.slice(1); }
+        else if (raw[0] === '8') { isGMO = true; code = raw.slice(1); }
+    }
+
+    const produce = PLU_DB[code];
+    showLoading();
+    renderPLUResult(raw, code, produce, isOrganic, isGMO);
+}
+
+function renderPLUResult(rawPLU, baseCode, produce, isOrganic, isGMO) {
+    const name = produce ? produce.name : `Produce (PLU ${rawPLU})`;
+
+    // Score
+    let pestRisk, pestLabel, pestColor, pestDesc;
+    let glyphRisk = produce?.glyphosate || 'low';
+
+    if (isOrganic) {
+        pestRisk = 'very-low'; pestLabel = 'Very Low'; pestColor = '#6ee7b7';
+        pestDesc = 'Certified organic — synthetic pesticides prohibited. This is the safest option for this produce.';
+    } else if (isGMO) {
+        pestRisk = 'high'; pestLabel = 'High'; pestColor = '#fb923c';
+        pestDesc = 'GMO-labeled produce (PLU starting with 8). May be engineered to tolerate pesticide spraying.';
+        glyphRisk = 'high';
+    } else if (produce?.dirty) {
+        pestRisk = 'high'; pestLabel = 'High'; pestColor = '#fb923c';
+        pestDesc = produce.note || 'On EWG\'s Dirty Dozen — high pesticide residue detected in USDA testing.';
+    } else if (produce?.clean) {
+        pestRisk = 'low'; pestLabel = 'Low'; pestColor = '#6ee7b7';
+        pestDesc = produce.note || 'On EWG\'s Clean Fifteen — very low pesticide residue.';
+    } else if (produce) {
+        pestRisk = 'medium'; pestLabel = 'Moderate'; pestColor = '#fde047';
+        pestDesc = produce.note || 'Not on Dirty Dozen or Clean Fifteen — moderate precaution recommended.';
+    } else {
+        pestRisk = 'medium'; pestLabel = 'Unknown'; pestColor = '#94a3b8';
+        pestDesc = `PLU code ${rawPLU} not found in our database. The organic prefix (${isOrganic ? 'detected' : 'not detected'}) was used for scoring.`;
+    }
+
+    // Overall grade
+    const isKnownBad  = (pestRisk === 'high'   && !isOrganic);
+    const isKnownGood = (pestRisk === 'low'     || isOrganic);
+    let grade, gradeClass, verdict, verdictBg;
+    if      (isOrganic)     { grade = 'A'; gradeClass = 'grade-A'; verdict = 'Very low concern'; verdictBg = 'rgba(110,231,183,0.15)'; }
+    else if (isKnownGood)   { grade = 'B'; gradeClass = 'grade-B'; verdict = 'Generally safe';   verdictBg = 'rgba(134,239,172,0.15)'; }
+    else if (isKnownBad)    { grade = 'D'; gradeClass = 'grade-D'; verdict = 'High concern';     verdictBg = 'rgba(251,146,60,0.15)'; }
+    else                    { grade = 'C'; gradeClass = 'grade-C'; verdict = 'Moderate concern'; verdictBg = 'rgba(253,224,71,0.15)'; }
+
+    const verdictColor = { A:'#6ee7b7', B:'#86efac', C:'#fde047', D:'#fb923c', F:'#f87171' }[grade];
+
+    // Recommendation
+    let rec = '';
+    if (isOrganic) {
+        rec = '✓ Great choice — organic is the safest option for this produce.';
+    } else if (produce?.dirty) {
+        rec = '⚠ This is on the Dirty Dozen. Strongly recommend buying organic for this one.';
+    } else if (produce?.clean) {
+        rec = '✓ Conventional is fine for this produce — one of the lowest-risk options.';
+    } else if (produce) {
+        rec = '○ Moderate risk — organic is preferable but conventional is acceptable.';
+    }
+
+    const glyphColor = { low: '#6ee7b7', medium: '#fde047', high: '#fb923c' }[glyphRisk] || '#6ee7b7';
+    const glyphLabel = { low: 'Low', medium: 'Moderate', high: 'High' }[glyphRisk] || 'Low';
+    const glyphDesc  = isOrganic
+        ? 'Organic certification prohibits glyphosate use.'
+        : glyphRisk === 'high'
+            ? 'This crop may be genetically modified to tolerate glyphosate spraying.'
+            : glyphRisk === 'medium'
+                ? 'Some risk if GMO — buy organic or Non-GMO certified to be sure.'
+                : 'Glyphosate not typically used on this crop.';
+
+    const html = `
+        <div style="padding-bottom:4px">
+            <div style="font-size:11px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:14px">
+                🏷 Fresh Produce · PLU ${rawPLU}${isOrganic ? ' · Organic' : isGMO ? ' · GMO' : ' · Conventional'}
+            </div>
+            <div class="score-section">
+                <div class="score-circle ${gradeClass}">
+                    <span class="score-letter">${grade}</span>
+                    <span class="score-sublabel">Safety</span>
+                </div>
+                <div class="product-info">
+                    <div class="product-name">${escHtml(name)}</div>
+                    <div class="product-brand">Fresh Produce</div>
+                    <span class="verdict-pill" style="background:${verdictBg};color:${verdictColor}">${verdict}</span>
+                </div>
+            </div>
+
+            ${rec ? `<div class="detail-card" style="margin-bottom:16px;border-color:${verdictColor}30">
+                <div class="detail-desc" style="color:${verdictColor};font-size:13px">${rec}</div>
+            </div>` : ''}
+
+            <div class="cat-grid">
+                <div class="cat-card">
+                    <div class="cat-icon">🌱</div>
+                    <div class="cat-name">Pesticides</div>
+                    <div class="cat-risk" style="color:${pestColor}">${pestLabel}</div>
+                    <div class="cat-sub">${produce?.dirty ? 'Dirty Dozen' : produce?.clean ? 'Clean Fifteen' : 'Mid-range'}</div>
+                </div>
+                <div class="cat-card">
+                    <div class="cat-icon">☠️</div>
+                    <div class="cat-name">Glyphosate</div>
+                    <div class="cat-risk" style="color:${glyphColor}">${glyphLabel}</div>
+                    <div class="cat-sub">${isOrganic ? 'Prohibited' : 'Conventional'}</div>
+                </div>
+                <div class="cat-card">
+                    <div class="cat-icon">🧪</div>
+                    <div class="cat-name">Additives</div>
+                    <div class="cat-risk risk-ok">None</div>
+                    <div class="cat-sub">Fresh produce</div>
+                </div>
+                <div class="cat-card">
+                    <div class="cat-icon">🏭</div>
+                    <div class="cat-name">Processing</div>
+                    <div class="cat-risk risk-ok">Unprocessed</div>
+                    <div class="cat-sub">NOVA 1</div>
+                </div>
+            </div>
+
+            <div class="section-label">🌱 Pesticide Details</div>
+            <div class="detail-card">
+                <div class="detail-row">
+                    <div class="detail-title" style="color:${pestColor}">${pestLabel} Pesticide Risk</div>
+                    <span class="badge" style="background:${pestColor}22;color:${pestColor}">${produce?.dirty ? 'DIRTY DOZEN' : produce?.clean ? 'CLEAN 15' : 'MID-RANGE'}</span>
+                </div>
+                <div class="detail-desc">${pestDesc}</div>
+            </div>
+
+            <div class="section-label">☠️ Glyphosate Details</div>
+            <div class="detail-card">
+                <div class="detail-row">
+                    <div class="detail-title" style="color:${glyphColor}">${glyphLabel} Glyphosate Risk</div>
+                </div>
+                <div class="detail-desc">${glyphDesc}</div>
+            </div>
+
+            <div class="disclaimer">
+                ⚠️ PLU data sourced from IFPS and EWG. Pesticide risk reflects conventional farming practices — actual residues vary by farm, region, and season.
+            </div>
+            <button class="scan-again" onclick="closePanel()">Scan Another Product</button>
+        </div>
+    `;
+
+    document.getElementById('resultsContent').innerHTML = html;
+}
+
+// ============================================================
+//  BEAUTY INGREDIENTS DATABASE
+//  Keyed by lowercase search term found in ingredients_text
+// ============================================================
+const BEAUTY_INGREDIENTS = {
+    // ── Endocrine Disruptors ──────────────────────────────────
+    'methylparaben':              { name: 'Methylparaben',                   risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Mimics estrogen in the body; linked to breast cancer cell growth in lab studies; readily absorbed through skin' },
+    'ethylparaben':               { name: 'Ethylparaben',                    risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Estrogenic activity; part of the paraben family linked to hormone disruption' },
+    'propylparaben':              { name: 'Propylparaben',                   risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Stronger estrogenic activity than methylparaben; banned in EU for products for children under 3' },
+    'butylparaben':               { name: 'Butylparaben',                    risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Strongest estrogenic activity of common parabens; restricted in EU cosmetics' },
+    'isobutylparaben':            { name: 'Isobutylparaben',                 risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Restricted in EU; endocrine disruption concerns similar to butylparaben' },
+    'isopropylparaben':           { name: 'Isopropylparaben',                risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Restricted in EU; endocrine disruption concerns' },
+    'triclosan':                  { name: 'Triclosan',                       risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Disrupts thyroid hormone function; banned in US antibacterial soaps; contributes to antibiotic resistance' },
+    'triclocarban':               { name: 'Triclocarban',                    risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Similar concerns to triclosan; banned from US soap products; persists in environment' },
+    'oxybenzone':                 { name: 'Oxybenzone',                      risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Sunscreen UV filter; absorbed through skin; acts as estrogen mimic; detected in breast milk; banned in Hawaii for reef damage' },
+    'benzophenone-3':             { name: 'Benzophenone-3 (Oxybenzone)',     risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Same compound as oxybenzone; hormone-disrupting sunscreen agent' },
+    'benzophenone-4':             { name: 'Benzophenone-4',                  risk: 'medium', cat: 'Endocrine Disruptor',  note: 'Related to oxybenzone; some endocrine activity; penetrates skin' },
+    'octinoxate':                 { name: 'Octinoxate',                      risk: 'medium', cat: 'Endocrine Disruptor',  note: 'UV filter; some estrogenic activity shown in animal studies; banned in Hawaii; absorbed through skin' },
+    'ethylhexyl methoxycinnamate':{ name: 'Ethylhexyl Methoxycinnamate',     risk: 'medium', cat: 'Endocrine Disruptor',  note: 'Same as octinoxate; penetrates skin and accumulates in body; potential endocrine effects' },
+    'homosalate':                 { name: 'Homosalate',                      risk: 'medium', cat: 'Endocrine Disruptor',  note: 'Sunscreen chemical; disrupts estrogen, androgen, and progesterone; accumulates faster than body can eliminate' },
+    'cyclopentasiloxane':         { name: 'Cyclopentasiloxane (D5)',          risk: 'medium', cat: 'Endocrine Disruptor',  note: 'Cyclic silicone; possible endocrine disruptor; restricted in EU wash-off products; persists in environment' },
+    'cyclohexasiloxane':          { name: 'Cyclohexasiloxane (D6)',           risk: 'medium', cat: 'Endocrine Disruptor',  note: 'Cyclic silicone; restricted in EU wash-off products; environmental persistence concerns' },
+    'cyclomethicone':             { name: 'Cyclomethicone',                  risk: 'medium', cat: 'Endocrine Disruptor',  note: 'Mixture of D4/D5/D6 cyclic silicones; potential endocrine effects; restricted in EU' },
+    'cyclotetrasiloxane':         { name: 'Cyclotetrasiloxane (D4)',          risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Most concerning cyclic silicone; classified as an endocrine disruptor in EU; banned in wash-off products' },
+    'resorcinol':                 { name: 'Resorcinol',                      risk: 'high',   cat: 'Endocrine Disruptor',  note: 'Used in hair dye and acne treatments; disrupts thyroid function; restricted in EU' },
+
+    // ── Carcinogens & precursors ──────────────────────────────
+    'formaldehyde':               { name: 'Formaldehyde',                    risk: 'severe', cat: 'Carcinogen',           note: 'Known human carcinogen (IARC Group 1); causes cancer with repeated inhalation; found in some nail products and Brazilian blowouts' },
+    'dmdm hydantoin':             { name: 'DMDM Hydantoin',                  risk: 'high',   cat: 'Carcinogen',           note: 'Preservative that slowly releases formaldehyde (a known carcinogen); class action lawsuits filed against hair products containing it' },
+    'quaternium-15':              { name: 'Quaternium-15',                   risk: 'high',   cat: 'Carcinogen',           note: 'Releases more formaldehyde than any other cosmetic preservative; strong allergen and carcinogen concern' },
+    'imidazolidinyl urea':        { name: 'Imidazolidinyl Urea',             risk: 'high',   cat: 'Carcinogen',           note: 'Formaldehyde-releasing preservative; releases formaldehyde on skin contact and over time' },
+    'diazolidinyl urea':          { name: 'Diazolidinyl Urea',               risk: 'high',   cat: 'Carcinogen',           note: 'Formaldehyde releaser; releases more formaldehyde than imidazolidinyl urea; strong sensitizer' },
+    'bronopol':                   { name: 'Bronopol',                        risk: 'high',   cat: 'Carcinogen',           note: 'Formaldehyde releaser; can also react with amines to form carcinogenic nitrosamines' },
+    '2-bromo-2-nitropropane':     { name: '2-Bromo-2-nitropropane-1,3-diol', risk: 'high',   cat: 'Carcinogen',           note: 'Same as Bronopol; formaldehyde releaser and nitrosamine precursor' },
+    'sodium hydroxymethylglycinate':{ name: 'Sodium Hydroxymethylglycinate', risk: 'medium', cat: 'Carcinogen',           note: 'Often marketed as a "natural" preservative; still releases formaldehyde; less studied than other releasers' },
+    'hydroquinone':               { name: 'Hydroquinone',                    risk: 'high',   cat: 'Carcinogen',           note: 'Skin lightener; possible carcinogen; linked to ochronosis (permanent skin darkening); prescription-only in EU' },
+    'coal tar':                   { name: 'Coal Tar',                        risk: 'severe', cat: 'Carcinogen',           note: 'Known human carcinogen (IARC Group 1); still legal in dandruff shampoos and psoriasis products in the US' },
+    'p-phenylenediamine':         { name: 'p-Phenylenediamine (PPD)',         risk: 'high',   cat: 'Carcinogen',           note: 'Primary hair dye chemical; possible carcinogen; severe allergen; linked to bladder cancer in hairdressers' },
+    'diethanolamine':             { name: 'Diethanolamine (DEA)',             risk: 'high',   cat: 'Carcinogen',           note: 'Can react with nitrites in formulas to form carcinogenic nitrosamines; banned in EU cosmetics' },
+    'cocamide dea':               { name: 'Cocamide DEA',                    risk: 'high',   cat: 'Carcinogen',           note: 'Listed as a known carcinogen by California Prop 65; forms nitrosamines; used as a foaming agent' },
+    'lauramide dea':              { name: 'Lauramide DEA',                   risk: 'high',   cat: 'Carcinogen',           note: 'DEA compound; nitrosamine concerns same as Cocamide DEA' },
+    'triethanolamine':            { name: 'Triethanolamine (TEA)',            risk: 'medium', cat: 'Carcinogen',           note: 'May form nitrosamines with certain preservatives; restricted concentration limits in EU' },
+    'talc':                       { name: 'Talc',                            risk: 'medium', cat: 'Carcinogen',           note: 'May be contaminated with asbestos; linked to ovarian cancer risk (Johnson & Johnson paid $2.1B in settlements); concerning in body powder and cosmetics' },
+    'retinyl palmitate':          { name: 'Retinyl Palmitate',               risk: 'medium', cat: 'Carcinogen',           note: 'Vitamin A compound; FDA found it may accelerate development of skin tumors when used in sunscreen exposed to UV light' },
+    'styrene':                    { name: 'Styrene',                         risk: 'high',   cat: 'Carcinogen',           note: 'Possible carcinogen (IARC Group 2A); found in some nail and hair products' },
+    'sodium laureth sulfate':     { name: 'Sodium Laureth Sulfate (SLES)',    risk: 'medium', cat: 'Carcinogen',           note: 'May be contaminated with 1,4-dioxane (possible carcinogen) as a byproduct of the ethoxylation manufacturing process' },
+    'peg-':                       { name: 'PEG Compound',                    risk: 'medium', cat: 'Carcinogen',           note: 'PEG (polyethylene glycol) compounds may be contaminated with 1,4-dioxane during manufacturing; also increase skin permeability, allowing other chemicals deeper penetration' },
+    'polyethylene glycol':        { name: 'Polyethylene Glycol',             risk: 'medium', cat: 'Carcinogen',           note: 'May contain 1,4-dioxane contamination; enhances absorption of other chemicals through skin' },
+
+    // ── Irritants & Allergens ─────────────────────────────────
+    'parfum':                     { name: 'Parfum (Fragrance)',               risk: 'high',   cat: 'Irritant/Allergen',    note: 'A single "fragrance" or "parfum" listing can hide hundreds of undisclosed chemicals — including allergens, phthalates, and sensitizers. The #1 cause of cosmetic contact dermatitis.' },
+    'fragrance':                  { name: 'Fragrance',                        risk: 'high',   cat: 'Irritant/Allergen',    note: 'Same as parfum — a regulatory loophole that lets companies hide entire chemical mixtures. May contain endocrine-disrupting phthalates without disclosure.' },
+    'sodium lauryl sulfate':      { name: 'Sodium Lauryl Sulfate (SLS)',      risk: 'medium', cat: 'Irritant/Allergen',    note: 'Harsh surfactant that strips the skin\'s natural barrier; causes irritation with repeated use; linked to canker sores in toothpaste' },
+    'methylisothiazolinone':      { name: 'Methylisothiazolinone (MI)',        risk: 'high',   cat: 'Irritant/Allergen',    note: 'Preservative responsible for an epidemic of contact allergy; banned from rinse-off products in EU; still allowed in leave-on products in US' },
+    'methylchloroisothiazolinone':{ name: 'Methylchloroisothiazolinone (MCI)', risk: 'high',   cat: 'Irritant/Allergen',    note: 'Strong allergen; restricted globally; often used in combination with MI; causes chemical burns at higher concentrations' },
+    'benzalkonium chloride':      { name: 'Benzalkonium Chloride',            risk: 'medium', cat: 'Irritant/Allergen',    note: 'Preservative/disinfectant; skin sensitizer; can damage the cornea with prolonged eye contact; worsens eczema' },
+    'alcohol denat':              { name: 'Alcohol Denat',                    risk: 'low',    cat: 'Irritant/Allergen',    note: 'Denatured alcohol; drying and irritating with repeated use; disrupts the skin\'s protective barrier over time' },
+    'denatured alcohol':          { name: 'Denatured Alcohol',                risk: 'low',    cat: 'Irritant/Allergen',    note: 'Drying and barrier-disrupting with frequent use' },
+    'eugenol':                    { name: 'Eugenol',                          risk: 'medium', cat: 'Irritant/Allergen',    note: 'Found in clove, cinnamon, and many essential oils; EU-listed fragrance allergen that must be declared above certain concentrations' },
+    'limonene':                   { name: 'Limonene',                         risk: 'low',    cat: 'Irritant/Allergen',    note: 'Citrus fragrance; oxidizes in air to form potent allergens; one of 26 EU-listed fragrance allergens' },
+    'linalool':                   { name: 'Linalool',                         risk: 'low',    cat: 'Irritant/Allergen',    note: 'Floral fragrance component; EU-listed fragrance allergen when oxidized; very common in cosmetics' },
+    'citronellol':                { name: 'Citronellol',                      risk: 'low',    cat: 'Irritant/Allergen',    note: 'EU-listed fragrance allergen; found in rose and geranium oils' },
+    'geraniol':                   { name: 'Geraniol',                         risk: 'low',    cat: 'Irritant/Allergen',    note: 'EU-listed fragrance allergen; found in rose, geranium, and citrus oils' },
+    'cinnamal':                   { name: 'Cinnamal (Cinnamaldehyde)',         risk: 'medium', cat: 'Irritant/Allergen',    note: 'EU-listed fragrance allergen; common cause of contact dermatitis; found in cinnamon-scented products' },
+    'isoeugenol':                 { name: 'Isoeugenol',                       risk: 'medium', cat: 'Irritant/Allergen',    note: 'EU-listed fragrance allergen; causes persistent contact allergy' },
+    'propylene glycol':           { name: 'Propylene Glycol',                 risk: 'low',    cat: 'Irritant/Allergen',    note: 'Humectant/penetration enhancer; can cause skin irritation and contact dermatitis in sensitive individuals; enhances absorption of other ingredients' },
+
+    // ── Reproductive Toxins ───────────────────────────────────
+    'diethyl phthalate':          { name: 'Diethyl Phthalate (DEP)',          risk: 'high',   cat: 'Reproductive Toxin',   note: 'Common phthalate in fragrances; linked to male reproductive toxicity; often hidden under "fragrance" or "parfum"' },
+    'dibutyl phthalate':          { name: 'Dibutyl Phthalate (DBP)',          risk: 'severe', cat: 'Reproductive Toxin',   note: 'Nail polish ingredient; reproductive toxin and developmental toxin; banned in EU cosmetics; still legal in US' },
+    'toluene':                    { name: 'Toluene',                          risk: 'severe', cat: 'Reproductive Toxin',   note: 'Nail polish solvent; reproductive and developmental toxin; causes neurological damage with regular inhalation; banned in EU cosmetics' },
+    'lead acetate':               { name: 'Lead Acetate',                     risk: 'severe', cat: 'Reproductive Toxin',   note: 'Heavy metal; reproductive toxin and neurotoxin; banned in EU; historically used in some hair dyes and lipsticks' },
+    'mercury':                    { name: 'Mercury / Thimerosal',             risk: 'severe', cat: 'Reproductive Toxin',   note: 'Heavy metal neurotoxin; found in some skin-lightening products; banned in EU; causes serious neurological damage' },
+    'thimerosal':                 { name: 'Thimerosal',                       risk: 'severe', cat: 'Reproductive Toxin',   note: 'Mercury-based preservative; neurotoxin; banned in EU cosmetics; still found in some mascaras and eye drops' },
+    'aluminum chlorohydrate':     { name: 'Aluminum Chlorohydrate',           risk: 'medium', cat: 'Reproductive Toxin',   note: 'Active ingredient in antiperspirants; potential neurotoxin; applied near breast tissue; some studies suggest link to breast cancer — evidence is mixed' },
+    'aluminium chlorohydrate':    { name: 'Aluminium Chlorohydrate',          risk: 'medium', cat: 'Reproductive Toxin',   note: 'Same as aluminum chlorohydrate; antiperspirant active; applied near breast tissue and lymph nodes' },
+    'aluminum zirconium':         { name: 'Aluminum Zirconium',               risk: 'medium', cat: 'Reproductive Toxin',   note: 'Antiperspirant active; absorbed through skin; potential neurotoxin; applied near breast tissue' },
+};
+
+// ============================================================
+//  BEAUTY PRODUCT SCORER
+// ============================================================
+function getBeautyContextWarning(product) {
+    const text = ((product.product_name || '') + ' ' + (product.categories_tags || []).join(' ')).toLowerCase();
+    if (/eye|mascara|liner|lash|shadow|kohl|kajal/.test(text))
+        return '👁 Eye-area products carry higher risk — skin around the eyes is thinner and more permeable than elsewhere, allowing ingredients to absorb more readily. Anything that migrates to the eye can also absorb via the mucous membrane.';
+    if (/lip|lipstick|gloss|balm|lipcolor|lip color/.test(text))
+        return '💄 Lip products are frequently ingested. Even small amounts add up — studies estimate people consume several pounds of lip product over a lifetime. Carcinogens, heavy metals, and hormone disruptors in lip products enter the body directly.';
+    if (/deodorant|antiperspirant|underarm/.test(text))
+        return '🧴 Antiperspirants are applied to thin skin directly over lymph nodes, close to breast tissue. Aluminum-based actives are absorbed through the skin and have been detected in breast tissue samples.';
+    return null;
+}
+
+function scoreBeautyProduct(product) {
+    const ingredients = (product.ingredients_text || '').toLowerCase();
+    const result = {
+        endocrine: { riskScore: 0, maxScore: 35, details: [] },
+        carcinogen: { riskScore: 0, maxScore: 35, details: [] },
+        irritant:   { riskScore: 0, maxScore: 20, details: [] },
+        repro:      { riskScore: 0, maxScore: 10, details: [] },
+    };
+
+    const seen = new Set();
+    for (const [key, ing] of Object.entries(BEAUTY_INGREDIENTS)) {
+        if (!ingredients.includes(key) || seen.has(ing.name)) continue;
+        seen.add(ing.name);
+
+        const pts  = { severe: 14, high: 7, medium: 4, low: 2 }[ing.risk] || 2;
+        const detail = { label: ing.name, desc: `[${ing.cat}] ${ing.note}`, type: ing.risk, badge: ing.risk.toUpperCase() };
+
+        if (ing.cat === 'Endocrine Disruptor') {
+            result.endocrine.riskScore = Math.min(result.endocrine.riskScore + pts, 35);
+            result.endocrine.details.push(detail);
+        } else if (ing.cat === 'Carcinogen') {
+            result.carcinogen.riskScore = Math.min(result.carcinogen.riskScore + pts, 35);
+            result.carcinogen.details.push(detail);
+        } else if (ing.cat === 'Irritant/Allergen') {
+            result.irritant.riskScore = Math.min(result.irritant.riskScore + pts, 20);
+            result.irritant.details.push(detail);
+        } else if (ing.cat === 'Reproductive Toxin') {
+            result.repro.riskScore = Math.min(result.repro.riskScore + pts, 10);
+            result.repro.details.push(detail);
+        }
+    }
+
+    // "All clear" messages for empty categories
+    if (!result.endocrine.details.length) result.endocrine.details.push({ label: 'No endocrine disruptors detected', desc: 'None of the known hormone-disrupting cosmetic ingredients were found.', type: 'ok', badge: 'CLEAR' });
+    if (!result.carcinogen.details.length) result.carcinogen.details.push({ label: 'No carcinogen-linked ingredients found', desc: 'No formaldehyde releasers, coal tar dyes, or other carcinogen-linked ingredients detected.', type: 'ok', badge: 'CLEAR' });
+    if (!result.irritant.details.length)   result.irritant.details.push({ label: 'No major irritants or allergens found', desc: 'No fragrance, SLS, or known EU-listed allergens detected.', type: 'ok', badge: 'CLEAR' });
+    if (!result.repro.details.length)      result.repro.details.push({ label: 'No reproductive toxins detected', desc: 'No phthalates, heavy metals, or other reproductive toxins found.', type: 'ok', badge: 'CLEAR' });
+
+    const total = result.endocrine.riskScore + result.carcinogen.riskScore + result.irritant.riskScore + result.repro.riskScore;
+
+    let grade, verdict, gradeClass, verdictBg;
+    if      (total <= 8)  { grade = 'A'; verdict = 'Very low concern'; gradeClass = 'grade-A'; verdictBg = 'rgba(110,231,183,0.15)'; }
+    else if (total <= 20) { grade = 'B'; verdict = 'Generally safe';   gradeClass = 'grade-B'; verdictBg = 'rgba(134,239,172,0.15)'; }
+    else if (total <= 38) { grade = 'C'; verdict = 'Moderate concern'; gradeClass = 'grade-C'; verdictBg = 'rgba(253,224,71,0.15)'; }
+    else if (total <= 58) { grade = 'D'; verdict = 'High concern';     gradeClass = 'grade-D'; verdictBg = 'rgba(251,146,60,0.15)'; }
+    else                  { grade = 'F'; verdict = 'Avoid';            gradeClass = 'grade-F'; verdictBg = 'rgba(248,113,113,0.15)'; }
+
+    return { grade, gradeClass, verdict, verdictBg, total, categories: result, isBeauty: true };
+}
+
+// ============================================================
+//  BEAUTY RESULTS RENDERER
+// ============================================================
+function renderBeautyResults(product, analysis) {
+    const { grade, gradeClass, verdict, verdictBg, total, categories } = analysis;
+    const name  = product.product_name || 'Unknown Product';
+    const brand = product.brands || '';
+    const verdictColor = { A:'#6ee7b7', B:'#86efac', C:'#fde047', D:'#fb923c', F:'#f87171' }[grade];
+    const warning = getBeautyContextWarning(product);
+
+    const getRiskLabel = (score, max) => {
+        const p = score / max;
+        if (p <= 0.1)  return { label: 'None',     cls: 'risk-ok' };
+        if (p <= 0.3)  return { label: 'Low',       cls: 'risk-low' };
+        if (p <= 0.58) return { label: 'Moderate',  cls: 'risk-medium' };
+        if (p <= 0.82) return { label: 'High',      cls: 'risk-high' };
+        return               { label: 'Severe',     cls: 'risk-severe' };
+    };
+
+    const end  = getRiskLabel(categories.endocrine.riskScore, categories.endocrine.maxScore);
+    const car  = getRiskLabel(categories.carcinogen.riskScore, categories.carcinogen.maxScore);
+    const irr  = getRiskLabel(categories.irritant.riskScore,  categories.irritant.maxScore);
+    const rep  = getRiskLabel(categories.repro.riskScore,     categories.repro.maxScore);
+
+    let html = `
+        <div style="font-size:10px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:14px;text-align:center">
+            💄 Beauty product · auto-detected
+        </div>
+
+        <div class="score-section">
+            <div class="score-circle ${gradeClass}">
+                <span class="score-letter">${grade}</span>
+                <span class="score-sublabel">Safety</span>
+            </div>
+            <div class="product-info">
+                <div class="product-name">${escHtml(name)}</div>
+                ${brand ? `<div class="product-brand">${escHtml(brand)}</div>` : ''}
+                <span class="verdict-pill" style="background:${verdictBg};color:${verdictColor}">${verdict}</span>
+            </div>
+        </div>
+
+        <div class="risk-bar-wrap">
+            <div class="risk-bar-labels"><span>Safe</span><span>Risky</span></div>
+            <div class="risk-bar">
+                <div class="risk-bar-fill" style="width:${Math.min((total / 100) * 100, 100)}%;background:${verdictColor}"></div>
+            </div>
+        </div>
+
+        ${warning ? `
+        <div class="detail-card" style="margin-bottom:16px;border-color:rgba(253,224,71,0.25);background:rgba(253,224,71,0.05)">
+            <div class="detail-desc" style="color:#fde047;font-size:13px">${warning}</div>
+        </div>` : ''}
+
+        <div class="cat-grid">
+            <div class="cat-card">
+                <div class="cat-icon">⚗️</div>
+                <div class="cat-name">Endocrine</div>
+                <div class="cat-risk ${end.cls}">${end.label}</div>
+                <div class="cat-sub">${categories.endocrine.riskScore}/${categories.endocrine.maxScore} pts</div>
+            </div>
+            <div class="cat-card">
+                <div class="cat-icon">☣️</div>
+                <div class="cat-name">Carcinogens</div>
+                <div class="cat-risk ${car.cls}">${car.label}</div>
+                <div class="cat-sub">${categories.carcinogen.riskScore}/${categories.carcinogen.maxScore} pts</div>
+            </div>
+            <div class="cat-card">
+                <div class="cat-icon">🌸</div>
+                <div class="cat-name">Irritants</div>
+                <div class="cat-risk ${irr.cls}">${irr.label}</div>
+                <div class="cat-sub">${categories.irritant.riskScore}/${categories.irritant.maxScore} pts</div>
+            </div>
+            <div class="cat-card">
+                <div class="cat-icon">🧬</div>
+                <div class="cat-name">Repro. toxins</div>
+                <div class="cat-risk ${rep.cls}">${rep.label}</div>
+                <div class="cat-sub">${categories.repro.riskScore}/${categories.repro.maxScore} pts</div>
+            </div>
+        </div>
+    `;
+
+    html += renderSection('Endocrine Disruptors', '⚗️', categories.endocrine.details);
+    html += renderSection('Carcinogens', '☣️', categories.carcinogen.details);
+    html += renderSection('Irritants & Allergens', '🌸', categories.irritant.details);
+    html += renderSection('Reproductive Toxins', '🧬', categories.repro.details);
+
+    html += `
+        <div class="disclaimer">
+            ⚠️ Ingredient data from Open Beauty Facts. Analysis is based on known ingredients — products with no ingredient list on file will show incomplete results. Not a substitute for medical advice.
+        </div>
+        <button class="scan-again" onclick="closePanel()">Scan Another Product</button>
+    `;
+
+    document.getElementById('resultsContent').innerHTML = html;
+}
 
 // ============================================================
 //  SCORING ENGINE
@@ -1073,6 +1599,14 @@ async function lookupBarcode(barcode) {
     barcode = String(barcode).trim();
     if (!barcode) return;
 
+    // If the scanner picked up a 4-5 digit PLU code from a produce sticker, route it
+    if (/^\d{4,5}$/.test(barcode) && !barcode.startsWith('0')) {
+        stopScanner();
+        document.getElementById('pluInput').value = barcode;
+        lookupPLU();
+        return;
+    }
+
     showLoading();
     stopScanner();
 
@@ -1081,7 +1615,23 @@ async function lookupBarcode(barcode) {
         const data = await res.json();
 
         if (data.status !== 1 || !data.product) {
-            showError(`No product found for barcode <strong>${escHtml(barcode)}</strong>.<br><br>This product may not be in the Open Food Facts database yet. You can add it at <em>openfoodfacts.org</em>.`);
+            // Not in food database — try Open Beauty Facts
+            try {
+                const bRes  = await fetch(`https://world.openbeautyfacts.org/api/v0/product/${encodeURIComponent(barcode)}.json`);
+                const bData = await bRes.json();
+
+                if (bData.status === 1 && bData.product) {
+                    lastProduct = bData.product;
+                    organicOverride = false;
+                    const bAnalysis = scoreBeautyProduct(bData.product);
+                    renderBeautyResults(bData.product, bAnalysis);
+                    return;
+                }
+            } catch (bErr) {
+                // beauty fetch failed — fall through to generic error
+            }
+
+            showError(`No product found for barcode <strong>${escHtml(barcode)}</strong>.<br><br>This product may not be in our databases yet. You can try searching by name instead.`);
             return;
         }
 
@@ -1133,28 +1683,23 @@ async function startScanner() {
 
         } else {
             // ── ZXing fallback (Safari / iOS / Firefox) ──
-            // Get our own high-res stream and hand the video element to ZXing
             videoStream = await navigator.mediaDevices.getUserMedia(camConstraints);
             videoEl.srcObject = videoStream;
             await videoEl.play();
-            scanningUIOn(btn, videoEl);
+            scanningUIOn(btn, videoEl);  // timer starts here now
 
-            zxingReader = new ZXing.BrowserMultiFormatReader();
-            // decodeFromVideoElementContinuously keeps calling until we stop it
-            zxingReader.decodeFromVideoElement(videoEl, (result, err) => {
-                if (result && scanning) {
-                    const code = result.getText();
-                    stopScanner();
-                    lookupBarcode(code);
-                }
-                // err is a NotFoundException on every empty frame — ignore it
-            });
+            // ZXing continuous polling loop — decodeFromVideoElement is single-frame,
+            // so we call it repeatedly ourselves
+            try {
+                zxingReader = new ZXing.BrowserMultiFormatReader();
+                zxingLoop(videoEl);
+            } catch (zxErr) {
+                // ZXing failed to init — camera still shows, fallback banner will appear
+                console.warn('ZXing init failed:', zxErr);
+            }
         }
 
         setupTorch(videoStream);
-        scanFallbackTimer = setTimeout(() => {
-            document.getElementById('photoFallback').style.display = 'flex';
-        }, 8000);
 
     } catch (err) {
         alert('Camera access denied. Please allow camera access or use "Enter Barcode" instead.');
@@ -1190,6 +1735,32 @@ function scanningUIOn(btn, videoEl) {
     document.getElementById('scanOverlay').style.display  = 'flex';
     btn.textContent = 'Stop Camera';
     btn.classList.add('danger');
+    // Timer starts as soon as camera is live — nothing can prevent this now
+    clearTimeout(scanFallbackTimer);
+    scanFallbackTimer = setTimeout(() => {
+        if (!scanning) return;
+        const el = document.getElementById('photoFallback');
+        el.style.display    = 'flex';
+        el.style.opacity    = '0';
+        el.style.transition = 'opacity 0.4s';
+        requestAnimationFrame(() => { el.style.opacity = '1'; });
+    }, 5000);
+}
+
+async function zxingLoop(videoEl) {
+    while (scanning) {
+        try {
+            const result = zxingReader.decodeFromVideoElement(videoEl);
+            if (result && scanning) {
+                stopScanner();
+                lookupBarcode(result.getText());
+                return;
+            }
+        } catch (e) {
+            // NotFoundException on every empty frame — totally normal, keep going
+        }
+        await new Promise(r => setTimeout(r, 150));
+    }
 }
 
 function stopScanner() {
@@ -1248,12 +1819,14 @@ function toggleManual(mode) {
     const entry      = document.getElementById('manualEntry');
     const barcodeRow = document.getElementById('barcodeRow');
     const nameRow    = document.getElementById('nameRow');
+    const pluRow     = document.getElementById('pluRow');
 
     // If tapping the same button again, close it
     if (activeInputMode === mode && entry.classList.contains('visible')) {
         entry.classList.remove('visible');
         barcodeRow.style.display = 'none';
         nameRow.style.display    = 'none';
+        pluRow.style.display     = 'none';
         activeInputMode = null;
         clearSearchResults();
         return;
@@ -1264,14 +1837,19 @@ function toggleManual(mode) {
     activeInputMode = mode;
     entry.classList.add('visible');
 
+    barcodeRow.style.display = 'none';
+    nameRow.style.display    = 'none';
+    pluRow.style.display     = 'none';
+
     if (mode === 'barcode') {
         barcodeRow.style.display = 'flex';
-        nameRow.style.display    = 'none';
         setTimeout(() => document.getElementById('barcodeInput').focus(), 100);
-    } else {
-        nameRow.style.display    = 'flex';
-        barcodeRow.style.display = 'none';
+    } else if (mode === 'name') {
+        nameRow.style.display = 'flex';
         setTimeout(() => document.getElementById('nameInput').focus(), 100);
+    } else if (mode === 'plu') {
+        pluRow.style.display = 'block';
+        setTimeout(() => document.getElementById('pluInput').focus(), 100);
     }
 }
 
@@ -1293,28 +1871,54 @@ async function searchByName() {
     el.innerHTML = `<div class="search-loading"><div class="spinner" style="width:24px;height:24px;border-width:2px;margin:0 auto 8px"></div><p>Searching…</p></div>`;
 
     try {
-        const fields = 'code,product_name,brands,additives_tags,nova_group,nutriscore_grade,labels_tags,labels,categories_tags,ingredients_text,additives_n,ingredients_analysis_tags,misc_tags';
-        const url    = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&json=1&page_size=6&fields=${fields}`;
-        const res    = await fetch(url);
-        const data   = await res.json();
+        const foodFields = 'code,product_name,brands,additives_tags,nova_group,nutriscore_grade,labels_tags,labels,categories_tags,ingredients_text,additives_n,ingredients_analysis_tags,misc_tags';
+        const beautyFields = 'code,product_name,brands,ingredients_text';
 
-        const products = (data.products || []).filter(p => p.product_name);
+        const [foodRes, beautyRes] = await Promise.allSettled([
+            fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&json=1&page_size=6&fields=${foodFields}`),
+            fetch(`https://world.openbeautyfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&json=1&page_size=4&fields=${beautyFields}`)
+        ]);
 
-        if (products.length === 0) {
+        const foodProducts = foodRes.status === 'fulfilled'
+            ? ((await foodRes.value.json()).products || []).filter(p => p.product_name)
+            : [];
+        const beautyProducts = beautyRes.status === 'fulfilled'
+            ? ((await beautyRes.value.json()).products || []).filter(p => p.product_name)
+            : [];
+
+        // Tag beauty products so selectSearchResult knows to score them differently
+        beautyProducts.forEach(p => { p._isBeauty = true; });
+
+        // Cache all
+        [...foodProducts, ...beautyProducts].forEach(p => { searchCache[p.code] = p; });
+
+        if (foodProducts.length === 0 && beautyProducts.length === 0) {
             el.innerHTML = `<div class="search-empty">No results found for "<strong>${escHtml(query)}</strong>".<br>Try a shorter or different name.</div>`;
             return;
         }
 
-        el.innerHTML = `<div class="search-label">Tap a product to scan it</div>` +
-            products.map(p => `
+        let html = `<div class="search-label">Tap a product to analyze it</div>`;
+
+        if (foodProducts.length > 0) {
+            html += foodProducts.map(p => `
                 <button class="search-result-item" onclick="selectSearchResult('${escHtml(p.code)}')">
                     <div class="sri-name">${escHtml(p.product_name)}</div>
                     <div class="sri-brand">${escHtml(p.brands || '')}</div>
                 </button>
             `).join('');
+        }
 
-        // Cache products by code so we don't need to re-fetch
-        products.forEach(p => { searchCache[p.code] = p; });
+        if (beautyProducts.length > 0) {
+            html += `<div class="search-label" style="margin-top:10px">💄 Beauty / Personal Care</div>`;
+            html += beautyProducts.map(p => `
+                <button class="search-result-item" onclick="selectSearchResult('${escHtml(p.code)}')">
+                    <div class="sri-name">${escHtml(p.product_name)}</div>
+                    <div class="sri-brand">${escHtml(p.brands || '')}</div>
+                </button>
+            `).join('');
+        }
+
+        el.innerHTML = html;
 
     } catch (err) {
         el.innerHTML = `<div class="search-empty">Search failed. Check your connection.</div>`;
@@ -1337,8 +1941,13 @@ function selectSearchResult(code) {
         lastProduct    = product;
         organicOverride = false;
         showLoading();
-        const analysis = scoreProduct(product);
-        renderResults(product, analysis);
+        if (product._isBeauty) {
+            const analysis = scoreBeautyProduct(product);
+            renderBeautyResults(product, analysis);
+        } else {
+            const analysis = scoreProduct(product);
+            renderResults(product, analysis);
+        }
     } else {
         lookupBarcode(code);
     }
@@ -1351,6 +1960,9 @@ document.getElementById('barcodeInput').addEventListener('keydown', e => {
 });
 document.getElementById('nameInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') searchByName();
+});
+document.getElementById('pluInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') lookupPLU();
 });
 
 // ============================================================
