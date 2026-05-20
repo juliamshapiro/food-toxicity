@@ -1669,59 +1669,62 @@ async function startScanner() {
         return;
     }
 
+    // ── Step 1: Get camera stream ──────────────────────────────
+    let stream;
     try {
-        // Try progressively simpler constraints until something works
-        let camErr;
-        const attempts = [
-            { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
-            { video: { facingMode: { ideal: 'environment' } } },
-            { video: true },
-        ];
-        for (const constraints of attempts) {
-            try {
-                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
-                break;
-            } catch (e) {
-                camErr = e;
-            }
-        }
-        if (!videoStream) throw camErr;
-
-        videoEl.srcObject = videoStream;
-        await videoEl.play();
-        scanningUIOn(btn, videoEl);
-
-        // Try native BarcodeDetector first; fall back to ZXing if it errors
-        // (iOS Chrome may have BarcodeDetector in scope but throw on instantiation)
-        let usedNative = false;
-        if ('BarcodeDetector' in window) {
-            try {
-                startNativeLoop(videoEl);
-                usedNative = true;
-            } catch (nativeErr) {
-                console.warn('BarcodeDetector failed, falling back to ZXing:', nativeErr);
-            }
-        }
-        if (!usedNative) {
-            // ── ZXing fallback (Safari / iOS / Firefox / iOS Chrome) ──
-            try {
-                zxingReader = new ZXing.BrowserMultiFormatReader();
-                zxingLoop(videoEl);
-            } catch (zxErr) {
-                console.warn('ZXing init failed:', zxErr);
-            }
-        }
-
-        setupTorch(videoStream);
-
-    } catch (err) {
-        const denied = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
-        if (denied) {
-            alert('Camera access was blocked. Please tap the camera icon in your browser\'s address bar and allow access, then try again.');
-        } else {
-            alert('Camera error: ' + err.name + ' — ' + (err.message || 'no message') + '\nTry "Search Name" instead.');
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+    } catch (_) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch (camErr) {
+            const denied = camErr.name === 'NotAllowedError' || camErr.name === 'PermissionDeniedError';
+            alert(denied
+                ? 'Camera access was blocked. Please tap the camera icon in your browser\'s address bar and allow access, then try again.'
+                : 'Could not start camera: ' + camErr.name + ' — ' + (camErr.message || ''));
+            return;
         }
     }
+
+    // ── Step 2: Attach stream to video element ─────────────────
+    videoStream = stream;
+    videoEl.srcObject = stream;
+    try {
+        await videoEl.play();
+    } catch (playErr) {
+        // play() failed — clean up and bail
+        stream.getTracks().forEach(t => t.stop());
+        videoStream = null;
+        alert('Could not start video playback: ' + playErr.name + ' — ' + (playErr.message || ''));
+        return;
+    }
+
+    // ── Step 3: Update UI ──────────────────────────────────────
+    scanningUIOn(btn, videoEl);
+
+    // ── Step 4: Start barcode detection ───────────────────────
+    // Try native BarcodeDetector; iOS Chrome may have it but throw on use
+    let usedNative = false;
+    if ('BarcodeDetector' in window) {
+        try {
+            startNativeLoop(videoEl);
+            usedNative = true;
+        } catch (e) {
+            console.warn('BarcodeDetector failed, falling back to ZXing:', e);
+        }
+    }
+    if (!usedNative) {
+        try {
+            zxingReader = new ZXing.BrowserMultiFormatReader();
+            zxingLoop(videoEl);
+        } catch (e) {
+            console.warn('ZXing init failed:', e);
+        }
+    }
+
+    // ── Step 5: Torch ──────────────────────────────────────────
+    setupTorch(stream);
 }
 
 function startNativeLoop(videoEl) {
@@ -1807,6 +1810,7 @@ function stopScanner() {
 let torchOn = false;
 
 function setupTorch(stream) {
+    if (!stream) return;
     const track = stream.getVideoTracks()[0];
     if (!track) return;
     const caps = track.getCapabilities ? track.getCapabilities() : {};
