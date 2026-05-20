@@ -1670,21 +1670,22 @@ async function startScanner() {
     }
 
     try {
-        // Inline getUserMedia directly (iOS Safari requires user-gesture to be in the direct call chain)
-        // Try high-res first; fall back to whatever the device will give
-        try {
-            videoStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: { ideal: 'environment' },
-                    width:  { ideal: 1920 },
-                    height: { ideal: 1080 },
-                }
-            });
-        } catch (constraintErr) {
-            videoStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: 'environment' } }
-            });
+        // Try progressively simpler constraints until something works
+        let camErr;
+        const attempts = [
+            { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
+            { video: { facingMode: { ideal: 'environment' } } },
+            { video: true },
+        ];
+        for (const constraints of attempts) {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+                break;
+            } catch (e) {
+                camErr = e;
+            }
         }
+        if (!videoStream) throw camErr;
 
         videoEl.srcObject = videoStream;
         await videoEl.play();
@@ -1718,7 +1719,7 @@ async function startScanner() {
         if (denied) {
             alert('Camera access was blocked. Please tap the camera icon in your browser\'s address bar and allow access, then try again.');
         } else {
-            alert('Could not start camera (' + (err.name || 'unknown error') + '). Try "Search Name" instead.');
+            alert('Camera error: ' + err.name + ' — ' + (err.message || 'no message') + '\nTry "Search Name" instead.');
         }
     }
 }
