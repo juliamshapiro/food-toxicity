@@ -1664,30 +1664,35 @@ async function startScanner() {
     const btn     = document.getElementById('scanBtn');
     const videoEl = document.getElementById('scanVideo');
 
-    const camConstraints = {
-        video: {
-            facingMode: { ideal: 'environment' },
-            width:  { ideal: 1920, min: 1280 },
-            height: { ideal: 1080, min: 720  },
+    // Try high-res first; fall back to any camera the device will give us
+    async function getCamera() {
+        try {
+            return await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width:  { ideal: 1920 },
+                    height: { ideal: 1080 },
+                }
+            });
+        } catch (e) {
+            // OverconstrainedError, NotReadableError, etc. — try with bare minimum
+            return await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' } }
+            });
         }
-    };
+    }
 
     try {
+        videoStream = await getCamera();
+        videoEl.srcObject = videoStream;
+        await videoEl.play();
+        scanningUIOn(btn, videoEl);
+
         if ('BarcodeDetector' in window) {
             // ── Native BarcodeDetector (Chrome on Android — fast & accurate) ──
-            videoStream = await navigator.mediaDevices.getUserMedia(camConstraints);
-            videoEl.srcObject = videoStream;
-            await videoEl.play();
-            scanningUIOn(btn, videoEl);
             startNativeLoop(videoEl);
-
         } else {
             // ── ZXing fallback (Safari / iOS / Firefox) ──
-            videoStream = await navigator.mediaDevices.getUserMedia(camConstraints);
-            videoEl.srcObject = videoStream;
-            await videoEl.play();
-            scanningUIOn(btn, videoEl);  // timer starts here now
-
             // ZXing continuous polling loop — decodeFromVideoElement is single-frame,
             // so we call it repeatedly ourselves
             try {
@@ -1702,7 +1707,12 @@ async function startScanner() {
         setupTorch(videoStream);
 
     } catch (err) {
-        alert('Camera access denied. Please allow camera access or use "Enter Barcode" instead.');
+        const denied = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
+        if (denied) {
+            alert('Camera access was blocked. Please tap the camera icon in your browser address bar and allow access, then try again.');
+        } else {
+            alert('Could not start camera (' + (err.name || 'unknown error') + '). Try "Search Name" instead.');
+        }
     }
 }
 
