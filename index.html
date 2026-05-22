@@ -1675,7 +1675,7 @@ async function startScanner() {
     try {
         videoStream = await navigator.mediaDevices.getUserMedia(camConstraints);
         videoEl.srcObject = videoStream;
-        await videoEl.play();
+        videoEl.play().catch(e => console.warn('play():', e));
         scanningUIOn(btn, videoEl);
 
         // Try native BarcodeDetector; fall back to ZXing if it's unavailable or broken
