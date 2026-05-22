@@ -1664,67 +1664,42 @@ async function startScanner() {
     const btn     = document.getElementById('scanBtn');
     const videoEl = document.getElementById('scanVideo');
 
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('Camera not supported in this browser. Try "Search Name" instead.');
-        return;
-    }
-
-    // ── Step 1: Get camera stream ──────────────────────────────
-    let stream;
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        });
-    } catch (_) {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        } catch (camErr) {
-            const denied = camErr.name === 'NotAllowedError' || camErr.name === 'PermissionDeniedError';
-            alert(denied
-                ? 'Camera access was blocked. Please tap the camera icon in your browser\'s address bar and allow access, then try again.'
-                : 'Could not start camera: ' + camErr.name + ' — ' + (camErr.message || ''));
-            return;
+    const camConstraints = {
+        video: {
+            facingMode: { ideal: 'environment' },
+            width:  { ideal: 1920, min: 1280 },
+            height: { ideal: 1080, min: 720  },
         }
-    }
+    };
 
-    // ── Step 2: Attach stream to video element ─────────────────
-    videoStream = stream;
-    videoEl.srcObject = stream;
     try {
+        videoStream = await navigator.mediaDevices.getUserMedia(camConstraints);
+        videoEl.srcObject = videoStream;
         await videoEl.play();
-    } catch (playErr) {
-        // play() failed — clean up and bail
-        stream.getTracks().forEach(t => t.stop());
-        videoStream = null;
-        alert('Could not start video playback: ' + playErr.name + ' — ' + (playErr.message || ''));
-        return;
-    }
+        scanningUIOn(btn, videoEl);
 
-    // ── Step 3: Update UI ──────────────────────────────────────
-    scanningUIOn(btn, videoEl);
-
-    // ── Step 4: Start barcode detection ───────────────────────
-    // Try native BarcodeDetector; iOS Chrome may have it but throw on use
-    let usedNative = false;
-    if ('BarcodeDetector' in window) {
-        try {
-            startNativeLoop(videoEl);
-            usedNative = true;
-        } catch (e) {
-            console.warn('BarcodeDetector failed, falling back to ZXing:', e);
+        // Try native BarcodeDetector; fall back to ZXing if it's unavailable or broken
+        let nativeOk = false;
+        if ('BarcodeDetector' in window) {
+            try {
+                startNativeLoop(videoEl);
+                nativeOk = true;
+            } catch (e) {
+                console.warn('BarcodeDetector unavailable, using ZXing:', e);
+            }
         }
-    }
-    if (!usedNative) {
-        try {
-            zxingReader = new ZXing.BrowserMultiFormatReader();
-            zxingLoop(videoEl);
-        } catch (e) {
-            console.warn('ZXing init failed:', e);
+        if (!nativeOk) {
+            try {
+                zxingReader = new ZXing.BrowserMultiFormatReader();
+                zxingLoop(videoEl);
+            } catch (zxErr) {
+                console.warn('ZXing init failed:', zxErr);
+            }
         }
+        setupTorch(videoStream);
+    } catch (err) {
+        alert('Camera access denied. Please allow camera access or use manual entry instead.');
     }
-
-    // ── Step 5: Torch ──────────────────────────────────────────
-    setupTorch(stream);
 }
 
 function startNativeLoop(videoEl) {
